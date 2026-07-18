@@ -136,6 +136,39 @@ export class SqliteStore {
     return { users: row.users, activeUsers: row.active_users, seenLaunches: row.seen_launches, pendingNotifications: row.pending_notifications };
   }
 
+  getTaxScan(chainKey: ChainKey, tokenAddress: string): TaxScanState | undefined {
+    const row = this.db.prepare(`
+      SELECT launch_block, scanned_to_block, tax_wei, transaction_count
+      FROM tax_scans WHERE chain_key = ? AND token_address = ?
+    `).get(chainKey, tokenAddress.toLowerCase()) as TaxScanRow | undefined;
+    return row ? {
+      launchBlock: row.launch_block,
+      scannedToBlock: row.scanned_to_block,
+      taxWei: BigInt(row.tax_wei),
+      transactionCount: row.transaction_count,
+    } : undefined;
+  }
+
+  saveTaxScan(chainKey: ChainKey, tokenAddress: string, state: TaxScanState): void {
+    this.db.prepare(`
+      INSERT INTO tax_scans (chain_key, token_address, launch_block, scanned_to_block, tax_wei, transaction_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+      ON CONFLICT(chain_key, token_address) DO UPDATE SET
+        launch_block = excluded.launch_block,
+        scanned_to_block = excluded.scanned_to_block,
+        tax_wei = excluded.tax_wei,
+        transaction_count = excluded.transaction_count,
+        updated_at = unixepoch()
+    `).run(
+      chainKey,
+      tokenAddress.toLowerCase(),
+      state.launchBlock,
+      state.scannedToBlock,
+      state.taxWei.toString(),
+      state.transactionCount,
+    );
+  }
+
   private requireUser(chatId: string): TelegramUser {
     const user = this.getUser(chatId);
     if (!user) throw new Error(`Telegram user ${chatId} is not registered`);
@@ -190,6 +223,16 @@ export class SqliteStore {
         sent_at INTEGER,
         UNIQUE(chat_id, virtual_id)
       );
+      CREATE TABLE IF NOT EXISTS tax_scans (
+        chain_key TEXT NOT NULL,
+        token_address TEXT NOT NULL,
+        launch_block INTEGER NOT NULL,
+        scanned_to_block INTEGER NOT NULL,
+        tax_wei TEXT NOT NULL,
+        transaction_count INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY(chain_key, token_address)
+      );
       UPDATE notification_outbox SET status = 'failed', next_attempt_at = 0 WHERE status = 'sending';
     `);
   }
@@ -197,6 +240,8 @@ export class SqliteStore {
 
 interface UserRow { chat_id: string; username: string | null; enabled: number; chains: string }
 interface OutboxRow { id: number; chat_id: string; payload: string; attempts: number }
+interface TaxScanRow { launch_block: number; scanned_to_block: number; tax_wei: string; transaction_count: number }
+export interface TaxScanState { launchBlock: number; scannedToBlock: number; taxWei: bigint; transactionCount: number }
 
 function rowToUser(row: UserRow): TelegramUser {
   return {

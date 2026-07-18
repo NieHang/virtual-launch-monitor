@@ -98,4 +98,21 @@ describe("SqliteStore", () => {
     expect(store.registerLiveLaunch(unverified, new Date("2026-07-17T12:00:10Z"), 300_000)).toBe(false);
     expect(store.registerLiveLaunch(project(), new Date("2026-07-17T12:01:00Z"), 300_000)).toBe(true);
   });
+
+  it("persists the incremental tax scan cursor and exact bigint total", () => {
+    const store = createStore();
+    const tokenAddress = "0x0000000000000000000000000000000000000001";
+    store.saveTaxScan("robinhood", tokenAddress, {
+      launchBlock: 100,
+      scannedToBlock: 250,
+      taxWei: 72_442_227_521_009_874_560_945n,
+      transactionCount: 488,
+    });
+    expect(store.getTaxScan("robinhood", tokenAddress)).toEqual({
+      launchBlock: 100,
+      scannedToBlock: 250,
+      taxWei: 72_442_227_521_009_874_560_945n,
+      transactionCount: 488,
+    });
+  });
 });

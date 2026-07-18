@@ -49,6 +49,7 @@ http://127.0.0.1:3000/health
 - “查询 Upcoming”：实时查询一次 Launch Radar。
 - `/status`：查看当前状态。
 - `/test`：测试 Telegram 收发。
+- `/tax <代币CA>`：从代币发射区块扫描到“发射后 98 分钟”或当前最新区块（取较早者），只累计与该代币交易关联、且转入固定税收地址的 VIRTUAL；后续查询采用 SQLite 增量扫描。
 
 ## Telegram 白名单
 

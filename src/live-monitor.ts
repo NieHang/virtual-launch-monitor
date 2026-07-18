@@ -104,8 +104,13 @@ export async function fetchLatestLaunches(): Promise<LiveProject[]> {
 }
 
 export async function fetchLaunchByToken(tokenAddress: string): Promise<LiveProject | undefined> {
+  const byPreToken = await fetchLaunchByTokenField("preToken", tokenAddress);
+  return byPreToken ?? fetchLaunchByTokenField("tokenAddress", tokenAddress);
+}
+
+async function fetchLaunchByTokenField(field: "preToken" | "tokenAddress", tokenAddress: string): Promise<LiveProject | undefined> {
   const url = new URL("https://api2.virtuals.io/api/virtuals");
-  url.searchParams.set("filters[preToken][$eqi]", tokenAddress);
+  url.searchParams.set(`filters[${field}][$eqi]`, tokenAddress);
   url.searchParams.set("noCache", String(Date.now()));
   url.searchParams.set("pagination[pageSize]", "1");
   const response = await fetch(url, {

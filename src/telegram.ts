@@ -3,6 +3,7 @@ import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import { fetchUpcomingProjects, type UpcomingProject } from "./launch-radar.js";
 import { logger } from "./logger.js";
 import type { SqliteStore } from "./store.js";
+import { formatVirtual, type TaxQueryResult, type TaxQueryService } from "./tax-query.js";
 import { toBeijingIsoString } from "./time.js";
 import type { AlertPayload, ChainKey, TelegramUser } from "./types.js";
 
@@ -64,6 +65,7 @@ export class TelegramBot {
     private readonly api: TelegramApi,
     private readonly store: SqliteStore,
     private readonly allowedChatIds: ReadonlySet<string> = new Set(),
+    private readonly taxQueryService?: TaxQueryService,
   ) {}
 
   start(): void { this.running = true; void this.loop(); }
@@ -115,6 +117,13 @@ export class TelegramBot {
         await this.sendStatus(chatId);
       } else if (command === "/test") {
         await this.api.sendMessage(chatId, "✅ Telegram 通知测试成功。Virtuals Launch Monitor 已连接。");
+      } else if (command === "/tax") {
+        const tokenAddress = args[0];
+        if (!tokenAddress) throw new Error("用法：/tax <代币CA>");
+        if (!this.taxQueryService) throw new Error("查税服务未启用。");
+        await this.api.sendMessage(chatId, "正在扫描链上税收记录，请稍候……");
+        const result = await this.taxQueryService.query(tokenAddress);
+        await this.api.sendMessage(chatId, formatTaxResult(result));
       } else if (command === "/threshold") {
         await this.api.sendMessage(chatId, "成交量阈值筛选已取消。现在只通知项目自身已认证 Twitter 的新发射项目。", notificationKeyboard(this.store.getUser(chatId)?.enabled ?? false));
       } else {
@@ -287,9 +296,26 @@ function helpText(user: TelegramUser): string {
     "",
     "/chains base robinhood - 设置订阅网络",
     "/status - 查看设置",
+    "/tax <代币CA> - 查询累计反狙击税",
     "/test - 发送连接测试通知",
     "/pause - 暂停通知",
     "/resume - 恢复通知",
+  ].join("\n");
+}
+
+export function formatTaxResult(result: TaxQueryResult): string {
+  const title = result.tokenSymbol
+    ? `${result.tokenName ?? result.tokenSymbol} ($${result.tokenSymbol})`
+    : result.tokenName ?? result.tokenAddress;
+  return [
+    "🧾 Virtuals 查税结果",
+    `项目：${title}`,
+    `网络：${result.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
+    `代币 CA：${result.tokenAddress}`,
+    `累计反狙击税：${formatVirtual(result.taxWei)} VIRTUAL`,
+    `税收交易数：${result.transactionCount}`,
+    `税收地址：${result.taxAddress}`,
+    `税期扫描区块：${result.launchBlock} - ${result.scannedToBlock}`,
   ].join("\n");
 }
 
