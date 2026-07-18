@@ -1,9 +1,16 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SqliteStore } from "../src/store.js";
 import type { LiveProject } from "../src/types.js";
 
 const stores: SqliteStore[] = [];
-afterEach(() => { for (const store of stores.splice(0)) store.close(); });
+const tempDirectories: string[] = [];
+afterEach(() => {
+  for (const store of stores.splice(0)) store.close();
+  for (const directory of tempDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
 
 function createStore(): SqliteStore {
   const store = new SqliteStore(":memory:");
@@ -55,6 +62,25 @@ describe("SqliteStore", () => {
     expect(store.enqueueForActiveUsers(item)).toBe(1);
     expect(store.enqueueForActiveUsers(item)).toBe(0);
     expect(store.claimOutbox(10).map((entry) => entry.chatId)).toEqual(["active"]);
+  });
+
+  it("disables existing users and discards queued alerts outside the whitelist", () => {
+    const directory = mkdtempSync(join(tmpdir(), "virtual-launch-monitor-"));
+    tempDirectories.push(directory);
+    const filename = join(directory, "whitelist.sqlite");
+    const initialStore = new SqliteStore(filename);
+    initialStore.upsertUser({ chatId: "allowed" });
+    initialStore.setUserEnabled("allowed", true);
+    initialStore.upsertUser({ chatId: "blocked" });
+    initialStore.setUserEnabled("blocked", true);
+    initialStore.enqueueForActiveUsers(project());
+    initialStore.close();
+
+    const restrictedStore = new SqliteStore(filename, new Set(["allowed"]));
+    expect(restrictedStore.getUser("allowed")?.enabled).toBe(true);
+    expect(restrictedStore.getUser("blocked")?.enabled).toBe(false);
+    expect(restrictedStore.claimOutbox(10).map((entry) => entry.chatId)).toEqual(["allowed"]);
+    restrictedStore.close();
   });
 
   it("does not notify an unseen old launch", () => {

@@ -6,10 +6,11 @@ import { logger } from "./logger.js";
 import { SqliteStore } from "./store.js";
 import { NotificationWorker, TelegramApi, TelegramBot } from "./telegram.js";
 
-const store = new SqliteStore(env.SQLITE_PATH);
+const telegramAllowedChatIds = new Set(env.TELEGRAM_ALLOWED_CHAT_IDS);
+const store = new SqliteStore(env.SQLITE_PATH, telegramAllowedChatIds);
 const telegramApi = env.TELEGRAM_BOT_TOKEN ? new TelegramApi(env.TELEGRAM_BOT_TOKEN) : undefined;
 const telegramBot = telegramApi
-  ? new TelegramBot(telegramApi, store, new Set(env.TELEGRAM_ALLOWED_CHAT_IDS))
+  ? new TelegramBot(telegramApi, store, telegramAllowedChatIds)
   : undefined;
 const notificationWorker = new NotificationWorker(store, telegramApi);
 const liveMonitor = new LiveLaunchMonitor(store);

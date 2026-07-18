@@ -7,12 +7,13 @@ import { toBeijingIsoString } from "./time.js";
 export class SqliteStore {
   private readonly db: DatabaseSync;
 
-  constructor(path: string) {
+  constructor(path: string, allowedChatIds: ReadonlySet<string> = new Set()) {
     const filename = path === ":memory:" ? path : resolve(path);
     if (filename !== ":memory:") mkdirSync(dirname(filename), { recursive: true });
     this.db = new DatabaseSync(filename);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.migrate();
+    this.enforceTelegramWhitelist(allowedChatIds);
   }
 
   close(): void { this.db.close(); }
@@ -139,6 +140,23 @@ export class SqliteStore {
     const user = this.getUser(chatId);
     if (!user) throw new Error(`Telegram user ${chatId} is not registered`);
     return user;
+  }
+
+  private enforceTelegramWhitelist(allowedChatIds: ReadonlySet<string>): void {
+    if (allowedChatIds.size === 0) return;
+    const ids = [...allowedChatIds];
+    const placeholders = ids.map(() => "?").join(", ");
+    this.db.prepare(`
+      UPDATE telegram_users
+      SET enabled = 0, updated_at = unixepoch()
+      WHERE chat_id NOT IN (${placeholders})
+    `).run(...ids);
+    this.db.prepare(`
+      UPDATE notification_outbox
+      SET status = 'discarded', last_error = 'Telegram user is outside the configured whitelist'
+      WHERE status IN ('pending', 'failed', 'sending')
+        AND chat_id NOT IN (${placeholders})
+    `).run(...ids);
   }
 
   private migrate(): void {
