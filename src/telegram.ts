@@ -335,21 +335,21 @@ export function formatRealCostResult(result: RealCostResult): string {
     : result.tokenName ?? result.tokenAddress;
   const fdv = formatVirtualFdv(result.fdvWei);
   const effectiveFdv = formatVirtualFdv(result.effectiveFdvWei);
-  const usdFdv = result.virtualUsdPrice ? formatUsd(result.fdvWei, result.virtualUsdPrice) : undefined;
-  const usdEffectiveFdv = result.virtualUsdPrice ? formatUsd(result.effectiveFdvWei, result.virtualUsdPrice) : undefined;
+  const usdFdv = result.virtualUsdPrice ? formatCompactUsd(result.fdvWei, result.virtualUsdPrice) : undefined;
+  const usdEffectiveFdv = result.virtualUsdPrice ? formatCompactUsd(result.effectiveFdvWei, result.virtualUsdPrice) : undefined;
   const poolLabel = result.poolSource === "graduated" ? "毕业后 LP" : "Bonding Pair";
   const lines = [
     "📐 Virtuals 链上真实成本",
     `项目：${title}`,
     `网络：${result.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
     `代币 CA：${result.tokenAddress}`,
-    `当前 FDV：${fdv} VIRTUAL${usdFdv ? `（约 $${usdFdv}）` : ""}`,
+    `当前 FDV：${fdv} VIRTUAL${usdFdv ? `（约 ${usdFdv}）` : ""}`,
   ];
   if (result.taxActive) {
     lines.push(
       `当前反狙击税：${result.antiSniperTaxPercent}%`,
       `当前总买入税：${result.totalBuyTaxPercent}%（基础 ${result.normalBuyTaxPercent}% + 反狙击 ${result.antiSniperTaxPercent}%）`,
-      `真实 eFDV：${effectiveFdv} VIRTUAL${usdEffectiveFdv ? `（约 $${usdEffectiveFdv}）` : ""}`,
+      `真实 eFDV：${effectiveFdv} VIRTUAL${usdEffectiveFdv ? `（约 ${usdEffectiveFdv}）` : ""}`,
       `距离反狙击税结束：${formatDuration(result.remainingSeconds)}`,
     );
   } else {
@@ -363,9 +363,19 @@ export function formatRealCostResult(result: RealCostResult): string {
   return lines.join("\n");
 }
 
-function formatUsd(wei: bigint, virtualUsdPrice: number): string {
+export function formatCompactUsd(wei: bigint, virtualUsdPrice: number): string {
   const usd = Number(wei) / 1e18 * virtualUsdPrice;
-  return usd.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  const units = [
+    { threshold: 1e9, suffix: "B" },
+    { threshold: 1e6, suffix: "M" },
+    { threshold: 1e3, suffix: "K" },
+  ];
+  const unit = units.find(({ threshold }) => usd >= threshold);
+  if (!unit) {
+    return `$${usd.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  }
+  const compact = (usd / unit.threshold).toFixed(1).replace(/\.0$/, "");
+  return `$${compact}${unit.suffix}`;
 }
 
 function formatDuration(seconds: number): string {
