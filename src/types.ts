@@ -13,6 +13,8 @@ export interface LiveProject {
   tokenAddress: string;
   tokenName?: string;
   tokenSymbol?: string;
+  preTokenPair?: string;
+  lpAddress?: string;
   launchedAt: Date;
   projectTwitter?: string;
   projectTelegram?: string;

@@ -2,6 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import { fetchUpcomingProjects, type UpcomingProject } from "./launch-radar.js";
 import { logger } from "./logger.js";
+import { formatVirtualFdv, type RealCostQueryService, type RealCostResult } from "./real-cost-query.js";
 import type { SqliteStore } from "./store.js";
 import { formatVirtual, type TaxQueryResult, type TaxQueryService } from "./tax-query.js";
 import { toBeijingIsoString } from "./time.js";
@@ -66,6 +67,7 @@ export class TelegramBot {
     private readonly store: SqliteStore,
     private readonly allowedChatIds: ReadonlySet<string> = new Set(),
     private readonly taxQueryService?: TaxQueryService,
+    private readonly realCostQueryService?: RealCostQueryService,
   ) {}
 
   start(): void { this.running = true; void this.loop(); }
@@ -124,6 +126,13 @@ export class TelegramBot {
         await this.api.sendMessage(chatId, "正在扫描链上税收记录，请稍候……");
         const result = await this.taxQueryService.query(tokenAddress);
         await this.api.sendMessage(chatId, formatTaxResult(result));
+      } else if (command === "/efdv") {
+        const tokenAddress = args[0];
+        if (!tokenAddress) throw new Error("用法：/efdv <代币CA>");
+        if (!this.realCostQueryService) throw new Error("真实成本查询服务未启用。");
+        await this.api.sendMessage(chatId, "正在读取最新区块、税率配置和池储备，请稍候……");
+        const result = await this.realCostQueryService.query(tokenAddress);
+        await this.api.sendMessage(chatId, formatRealCostResult(result));
       } else if (command === "/threshold") {
         await this.api.sendMessage(chatId, "成交量阈值筛选已取消。现在只通知项目自身已认证 Twitter 的新发射项目。", notificationKeyboard(this.store.getUser(chatId)?.enabled ?? false));
       } else {
@@ -297,6 +306,7 @@ function helpText(user: TelegramUser): string {
     "/chains base robinhood - 设置订阅网络",
     "/status - 查看设置",
     "/tax <代币CA> - 查询累计反狙击税",
+    "/efdv <代币CA> - 查询链上实时 FDV / 真实 eFDV",
     "/test - 发送连接测试通知",
     "/pause - 暂停通知",
     "/resume - 恢复通知",
@@ -317,6 +327,51 @@ export function formatTaxResult(result: TaxQueryResult): string {
     `税收地址：${result.taxAddress}`,
     `税期扫描区块：${result.launchBlock} - ${result.scannedToBlock}`,
   ].join("\n");
+}
+
+export function formatRealCostResult(result: RealCostResult): string {
+  const title = result.tokenSymbol
+    ? `${result.tokenName ?? result.tokenSymbol} ($${result.tokenSymbol})`
+    : result.tokenName ?? result.tokenAddress;
+  const fdv = formatVirtualFdv(result.fdvWei);
+  const effectiveFdv = formatVirtualFdv(result.effectiveFdvWei);
+  const usdFdv = result.virtualUsdPrice ? formatUsd(result.fdvWei, result.virtualUsdPrice) : undefined;
+  const usdEffectiveFdv = result.virtualUsdPrice ? formatUsd(result.effectiveFdvWei, result.virtualUsdPrice) : undefined;
+  const poolLabel = result.poolSource === "graduated" ? "毕业后 LP" : "Bonding Pair";
+  const lines = [
+    "📐 Virtuals 链上真实成本",
+    `项目：${title}`,
+    `网络：${result.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
+    `代币 CA：${result.tokenAddress}`,
+    `当前 FDV：${fdv} VIRTUAL${usdFdv ? `（约 $${usdFdv}）` : ""}`,
+  ];
+  if (result.taxActive) {
+    lines.push(
+      `当前反狙击税：${result.antiSniperTaxPercent}%`,
+      `当前总买入税：${result.totalBuyTaxPercent}%（基础 ${result.normalBuyTaxPercent}% + 反狙击 ${result.antiSniperTaxPercent}%）`,
+      `真实 eFDV：${effectiveFdv} VIRTUAL${usdEffectiveFdv ? `（约 $${usdEffectiveFdv}）` : ""}`,
+      `距离反狙击税结束：${formatDuration(result.remainingSeconds)}`,
+    );
+  } else {
+    lines.push("反狙击税：已结束", "真实成本：当前 FDV（不再叠加反狙击税）");
+  }
+  lines.push(
+    `价格来源：${poolLabel} 链上储备`,
+    `税率来源：链上 type ${result.antiSniperType} / ${result.taxDurationSeconds}s 配置`,
+    `查询区块：${result.blockNumber}`,
+  );
+  return lines.join("\n");
+}
+
+function formatUsd(wei: bigint, virtualUsdPrice: number): string {
+  const usd = Number(wei) / 1e18 * virtualUsdPrice;
+  return usd.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+function formatDuration(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes > 0 ? `${minutes}分${remainder}秒` : `${remainder}秒`;
 }
 
 function formatUpcomingProject(project: UpcomingProject): string {

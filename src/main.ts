@@ -3,6 +3,7 @@ import { ChainLaunchMonitor } from "./chain-monitor.js";
 import { startHealthServer } from "./health.js";
 import { LiveLaunchMonitor } from "./live-monitor.js";
 import { logger } from "./logger.js";
+import { RealCostQueryService } from "./real-cost-query.js";
 import { SqliteStore } from "./store.js";
 import { TaxQueryService } from "./tax-query.js";
 import { NotificationWorker, TelegramApi, TelegramBot } from "./telegram.js";
@@ -11,8 +12,9 @@ const telegramAllowedChatIds = new Set(env.TELEGRAM_ALLOWED_CHAT_IDS);
 const store = new SqliteStore(env.SQLITE_PATH, telegramAllowedChatIds);
 const telegramApi = env.TELEGRAM_BOT_TOKEN ? new TelegramApi(env.TELEGRAM_BOT_TOKEN) : undefined;
 const taxQueryService = new TaxQueryService(store);
+const realCostQueryService = new RealCostQueryService();
 const telegramBot = telegramApi
-  ? new TelegramBot(telegramApi, store, telegramAllowedChatIds, taxQueryService)
+  ? new TelegramBot(telegramApi, store, telegramAllowedChatIds, taxQueryService, realCostQueryService)
   : undefined;
 const notificationWorker = new NotificationWorker(store, telegramApi);
 const liveMonitor = new LiveLaunchMonitor(store);

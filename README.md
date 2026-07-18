@@ -50,6 +50,16 @@ http://127.0.0.1:3000/health
 - `/status`：查看当前状态。
 - `/test`：测试 Telegram 收发。
 - `/tax <代币CA>`：从代币发射区块扫描到“发射后 98 分钟”或当前最新区块（取较早者），只累计与该代币交易关联、且转入固定税收地址的 VIRTUAL；后续查询采用 SQLite 增量扫描。
+- `/efdv <代币CA>`：从最新区块直接读取 Bonding/毕业后 LP 储备、代币总供应量、Pair 的 `taxStartTime`、BondingV5 的税率类型和链上持续时间，返回当前 FDV；反狙击税仍有效时同时返回真实 eFDV，结束后直接返回 FDV。
+
+真实 eFDV 不使用官网缓存的 `fdvInVirtual`。计算口径为：
+
+```text
+链上 FDV = totalSupply × VIRTUAL reserve ÷ token reserve
+真实 eFDV = 链上 FDV × 100 ÷ (100 - 当前总买入税率)
+```
+
+当前税率按合约 Router 的实际逻辑计算：以最新区块时间减去 Pair 的 `taxStartTime`（旧 Pair 回退到 `startTime`），再结合 `BondingConfig.getAntiSniperDuration(type)` 线性递减。不同类型可以是 60 秒、600 秒或 98 分钟，不能统一按官网倒计时或固定 98 分钟推断。
 
 ## Telegram 白名单
 

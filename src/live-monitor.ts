@@ -10,7 +10,9 @@ interface VirtualsItem {
   status?: string;
   chain?: string;
   preToken?: string | null;
+  preTokenPair?: string | null;
   tokenAddress?: string | null;
+  lpAddress?: string | null;
   launchedAt?: string | null;
   socials?: {
     VERIFIED_LINKS?: { TWITTER?: string | null; TELEGRAM?: string | null } | null;
@@ -147,6 +149,8 @@ export function toLiveProject(item: VirtualsItem): LiveProject[] {
     tokenAddress,
     ...(item.name ? { tokenName: item.name } : {}),
     ...(item.symbol ? { tokenSymbol: item.symbol } : {}),
+    ...(item.preTokenPair ? { preTokenPair: item.preTokenPair } : {}),
+    ...(item.lpAddress ? { lpAddress: item.lpAddress } : {}),
     launchedAt,
     ...(verified?.TWITTER ? { projectTwitter: verified.TWITTER } : {}),
     ...(verified?.TELEGRAM ? { projectTelegram: verified.TELEGRAM } : {}),
