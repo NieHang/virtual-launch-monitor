@@ -8,7 +8,9 @@ import { NotificationWorker, TelegramApi, TelegramBot } from "./telegram.js";
 
 const store = new SqliteStore(env.SQLITE_PATH);
 const telegramApi = env.TELEGRAM_BOT_TOKEN ? new TelegramApi(env.TELEGRAM_BOT_TOKEN) : undefined;
-const telegramBot = telegramApi ? new TelegramBot(telegramApi, store) : undefined;
+const telegramBot = telegramApi
+  ? new TelegramBot(telegramApi, store, new Set(env.TELEGRAM_ALLOWED_CHAT_IDS))
+  : undefined;
 const notificationWorker = new NotificationWorker(store, telegramApi);
 const liveMonitor = new LiveLaunchMonitor(store);
 const chainMonitor = new ChainLaunchMonitor(store);
@@ -24,6 +26,8 @@ logger.info("Virtual Launch Monitor ready", {
   database: env.SQLITE_PATH,
   port: env.PORT,
   telegram: Boolean(telegramApi),
+  telegramWhitelistEnabled: env.TELEGRAM_ALLOWED_CHAT_IDS.length > 0,
+  telegramAllowedUsers: env.TELEGRAM_ALLOWED_CHAT_IDS.length,
 });
 
 async function shutdown(signal: string): Promise<void> {

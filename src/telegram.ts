@@ -60,7 +60,11 @@ export class TelegramBot {
   private running = false;
   private offset = 0;
 
-  constructor(private readonly api: TelegramApi, private readonly store: SqliteStore) {}
+  constructor(
+    private readonly api: TelegramApi,
+    private readonly store: SqliteStore,
+    private readonly allowedChatIds: ReadonlySet<string> = new Set(),
+  ) {}
 
   start(): void { this.running = true; void this.loop(); }
   stop(): void { this.running = false; }
@@ -87,6 +91,11 @@ export class TelegramBot {
 
   private async handleMessage(message: TelegramMessage): Promise<void> {
     const chatId = String(message.chat.id);
+    if (!isTelegramChatAllowed(chatId, this.allowedChatIds)) {
+      logger.warn("Rejected Telegram user outside whitelist", { chatId, username: message.from?.username });
+      await this.api.sendMessage(chatId, unauthorizedText(chatId));
+      return;
+    }
     const [rawCommand = "", ...args] = (message.text ?? "").trim().split(/\s+/);
     const command = rawCommand.split("@")[0]?.toLowerCase();
     this.store.upsertUser({ chatId, ...(message.from?.username ? { username: message.from.username } : {}) });
@@ -122,6 +131,12 @@ export class TelegramBot {
       return;
     }
     const chatId = String(callback.message.chat.id);
+    if (!isTelegramChatAllowed(chatId, this.allowedChatIds)) {
+      logger.warn("Rejected Telegram callback outside whitelist", { chatId, username: callback.from.username });
+      await this.api.answerCallbackQuery(callback.id, "未授权使用此 Bot");
+      await this.api.sendMessage(chatId, unauthorizedText(chatId));
+      return;
+    }
     this.store.upsertUser({ chatId, ...(callback.from.username ? { username: callback.from.username } : {}) });
     try {
       if (callback.data === "notifications:enable") {
@@ -233,6 +248,14 @@ export function formatAlert(payload: AlertPayload): string {
 
 function enabledText(): string {
   return "🔔 通知已开启。只会推送开启之后新发射、且项目自身已认证 Twitter 的项目，不会补发历史代币。";
+}
+
+export function isTelegramChatAllowed(chatId: string, allowedChatIds: ReadonlySet<string>): boolean {
+  return allowedChatIds.size === 0 || allowedChatIds.has(chatId);
+}
+
+function unauthorizedText(chatId: string): string {
+  return `⛔ 你未被授权使用此 Bot。\n你的 Telegram Chat ID：${chatId}\n请联系管理员加入白名单。`;
 }
 
 function normalizeChains(args: string[]): ChainKey[] {

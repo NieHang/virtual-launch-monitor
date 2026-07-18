@@ -50,6 +50,16 @@ http://127.0.0.1:3000/health
 - `/status`：查看当前状态。
 - `/test`：测试 Telegram 收发。
 
+## Telegram 白名单
+
+三名用户继续共用同一个 Bot Token。将允许使用 Bot 的 Telegram Chat ID 写入 `.env`：
+
+```dotenv
+TELEGRAM_ALLOWED_CHAT_IDS=123456789,987654321,1122334455
+```
+
+变量为空时不限制用户；填写后，只有名单内用户能注册、查询 Upcoming 或开启通知。未授权用户发送消息时会收到自己的 Chat ID，但不会写入 SQLite。修改白名单后需要重启服务。
+
 ## 数据文件
 
 默认数据库为 `data/monitor.sqlite`。它保存：

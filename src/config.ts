@@ -4,6 +4,15 @@ import { z } from "zod";
 const envSchema = z.object({
   SQLITE_PATH: z.string().default("./data/monitor.sqlite"),
   TELEGRAM_BOT_TOKEN: z.preprocess((value) => value === "" ? undefined : value, z.string().optional()),
+  TELEGRAM_ALLOWED_CHAT_IDS: z.string().default("").transform((value, context) => {
+    const chatIds = value.split(/[\s,]+/).filter(Boolean);
+    const invalid = chatIds.find((chatId) => !/^-?\d+$/.test(chatId));
+    if (invalid) {
+      context.addIssue({ code: "custom", message: `Invalid Telegram chat ID: ${invalid}` });
+      return z.NEVER;
+    }
+    return [...new Set(chatIds)];
+  }),
   BASE_RPC_URL: z.string().url().default("https://mainnet.base.org"),
   ROBINHOOD_RPC_URL: z.string().url().default("https://rpc.mainnet.chain.robinhood.com"),
   CHAIN_POLL_MS: z.coerce.number().int().min(500).default(1000),
