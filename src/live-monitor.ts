@@ -2,7 +2,6 @@ import { env } from "./config.js";
 import { logger } from "./logger.js";
 import type { SqliteStore } from "./store.js";
 import type { ChainKey, LiveProject } from "./types.js";
-import type { XAttentionService } from "./x-attention.js";
 
 interface VirtualsItem {
   id?: number;
@@ -30,7 +29,7 @@ export class LiveLaunchMonitor {
   private consecutiveFailures = 0;
   private startedAt?: Date;
 
-  constructor(private readonly store: SqliteStore, private readonly xAttention: XAttentionService) {}
+  constructor(private readonly store: SqliteStore) {}
 
   async start(): Promise<void> {
     this.stopped = false;
@@ -61,16 +60,12 @@ export class LiveLaunchMonitor {
             continue;
           }
           if (!this.store.registerLiveLaunch(project, now, env.LIVE_LAUNCH_MAX_AGE_MS)) continue;
-          const attention = await this.xAttention.checkProject(project.projectTwitter!);
-          this.store.saveLaunchAttention(project.virtualId, attention);
-          const queued = this.store.enqueueForActiveUsers(project, attention);
+          const queued = this.store.enqueueForActiveUsers(project);
           logger.info("Qualified new launch discovered", {
             virtualId: project.virtualId,
             token: project.tokenAddress,
             chain: project.chainKey,
             launchedAt: project.launchedAt.toISOString(),
-            officialFollowers: attention.followers.length,
-            attentionStatus: attention.status,
             queued,
           });
         }

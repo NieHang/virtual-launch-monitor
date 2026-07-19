@@ -7,20 +7,18 @@ import { RealCostQueryService } from "./real-cost-query.js";
 import { SqliteStore } from "./store.js";
 import { TaxQueryService } from "./tax-query.js";
 import { NotificationWorker, TelegramApi, TelegramBot } from "./telegram.js";
-import { XAttentionService } from "./x-attention.js";
 
 const telegramAllowedChatIds = new Set(env.TELEGRAM_ALLOWED_CHAT_IDS);
 const store = new SqliteStore(env.SQLITE_PATH, telegramAllowedChatIds);
 const telegramApi = env.TELEGRAM_BOT_TOKEN ? new TelegramApi(env.TELEGRAM_BOT_TOKEN) : undefined;
 const taxQueryService = new TaxQueryService(store);
 const realCostQueryService = new RealCostQueryService();
-const xAttentionService = new XAttentionService(env.X_BEARER_TOKEN);
 const telegramBot = telegramApi
-  ? new TelegramBot(telegramApi, store, telegramAllowedChatIds, taxQueryService, realCostQueryService, xAttentionService)
+  ? new TelegramBot(telegramApi, store, telegramAllowedChatIds, taxQueryService, realCostQueryService)
   : undefined;
 const notificationWorker = new NotificationWorker(store, telegramApi);
-const liveMonitor = new LiveLaunchMonitor(store, xAttentionService);
-const chainMonitor = new ChainLaunchMonitor(store, xAttentionService);
+const liveMonitor = new LiveLaunchMonitor(store);
+const chainMonitor = new ChainLaunchMonitor(store);
 const healthServer = startHealthServer(env.PORT, store);
 
 notificationWorker.start();

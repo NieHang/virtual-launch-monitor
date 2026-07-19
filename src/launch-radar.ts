@@ -52,18 +52,6 @@ export async function fetchUpcomingProjects(now = new Date()): Promise<UpcomingP
   }).sort((left, right) => left.launchedAt.getTime() - right.launchedAt.getTime());
 }
 
-export async function fetchUpcomingProjectTwitter(virtualId: string): Promise<string | undefined> {
-  const url = new URL(`https://api2.virtuals.io/api/virtuals/${encodeURIComponent(virtualId)}`);
-  url.searchParams.set("noCache", String(Date.now()));
-  const response = await fetch(url, {
-    headers: { accept: "application/json, text/plain, */*", "cache-control": "no-cache" },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (response.status === 404) return undefined;
-  if (!response.ok) throw new Error(`Virtuals Upcoming project lookup returned ${response.status}`);
-  const payload = await response.json() as { data?: LaunchRadarItem };
-  return payload.data?.socials?.VERIFIED_LINKS?.TWITTER ?? undefined;
-}
 
 function normalizeChain(value?: string): ChainKey | undefined {
   if (value?.toUpperCase() === "BASE") return "base";

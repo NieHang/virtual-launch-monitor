@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AlertPayload, ChainKey, LiveProject, OutboxItem, StoreStats, TelegramUser, XAttentionResult } from "./types.js";
+import type { AlertPayload, ChainKey, LiveProject, OutboxItem, StoreStats, TelegramUser } from "./types.js";
 import { toBeijingIsoString } from "./time.js";
 
 export class SqliteStore {
@@ -74,20 +74,7 @@ export class SqliteStore {
     return false;
   }
 
-  saveLaunchAttention(virtualId: string, result: XAttentionResult): void {
-    this.db.prepare(`
-      INSERT INTO launch_attention_checks (virtual_id, status, result, checked_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(virtual_id) DO NOTHING
-    `).run(virtualId, result.status, JSON.stringify(result), new Date(result.checkedAt).getTime());
-  }
-
-  getLaunchAttention(virtualId: string): XAttentionResult | undefined {
-    const row = this.db.prepare("SELECT result FROM launch_attention_checks WHERE virtual_id = ?").get(virtualId) as { result: string } | undefined;
-    return row ? JSON.parse(row.result) as XAttentionResult : undefined;
-  }
-
-  enqueueForActiveUsers(project: LiveProject, xAttention?: XAttentionResult): number {
+  enqueueForActiveUsers(project: LiveProject): number {
     if (!project.projectTwitter) return 0;
     const users = this.db.prepare("SELECT * FROM telegram_users WHERE enabled = 1").all() as unknown as UserRow[];
     const insert = this.db.prepare(`
@@ -104,7 +91,6 @@ export class SqliteStore {
       projectTwitter: project.projectTwitter,
       ...(project.projectTelegram ? { projectTelegram: project.projectTelegram } : {}),
       explorer: project.chainKey === "base" ? "https://basescan.org" : "https://robinhoodchain.blockscout.com",
-      ...(xAttention ? { xAttention } : {}),
     };
     let count = 0;
     for (const row of users) {
@@ -237,12 +223,6 @@ export class SqliteStore {
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         sent_at INTEGER,
         UNIQUE(chat_id, virtual_id)
-      );
-      CREATE TABLE IF NOT EXISTS launch_attention_checks (
-        virtual_id TEXT PRIMARY KEY,
-        status TEXT NOT NULL,
-        result TEXT NOT NULL,
-        checked_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS tax_scans (
         chain_key TEXT NOT NULL,
