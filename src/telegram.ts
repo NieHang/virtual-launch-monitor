@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import { fetchUpcomingProjects, fetchUpcomingProjectTwitter, type UpcomingProject } from "./launch-radar.js";
+import { fetchLaunchByToken } from "./live-monitor.js";
 import { logger } from "./logger.js";
 import { formatVirtualFdv, type RealCostQueryService, type RealCostResult } from "./real-cost-query.js";
 import type { SqliteStore } from "./store.js";
@@ -121,6 +122,27 @@ export class TelegramBot {
         await this.sendStatus(chatId);
       } else if (command === "/test") {
         await this.api.sendMessage(chatId, "✅ Telegram 通知测试成功。Virtuals Launch Monitor 已连接。");
+      } else if (command === "/search") {
+        const tokenAddress = args[0];
+        if (!tokenAddress) throw new Error("用法：/search <代币CA>");
+        if (!this.xAttentionService) throw new Error("X 关注检测服务未启用。");
+        await this.api.sendMessage(chatId, "正在查询项目与 Virtual 官方关注情况，请稍候……");
+        const project = await fetchLaunchByToken(tokenAddress);
+        if (!project) throw new Error("未在 Virtuals 中找到这个代币 CA。");
+        if (!project.projectTwitter) throw new Error("该项目没有 Virtuals 认证 X，无法检测官方关注情况。");
+        const attention = await this.xAttentionService.checkProject(project.projectTwitter);
+        await this.api.sendMessage(chatId, formatAlert({
+          virtualId: project.virtualId,
+          chainKey: project.chainKey,
+          tokenAddress: project.tokenAddress,
+          ...(project.tokenName ? { tokenName: project.tokenName } : {}),
+          ...(project.tokenSymbol ? { tokenSymbol: project.tokenSymbol } : {}),
+          launchedAt: toBeijingIsoString(project.launchedAt),
+          projectTwitter: project.projectTwitter,
+          ...(project.projectTelegram ? { projectTelegram: project.projectTelegram } : {}),
+          explorer: project.chainKey === "base" ? "https://basescan.org" : "https://robinhoodchain.blockscout.com",
+          xAttention: attention,
+        }));
       } else if (command === "/tax") {
         const tokenAddress = args[0];
         if (!tokenAddress) throw new Error("用法：/tax <代币CA>");
@@ -328,6 +350,7 @@ function helpText(user: TelegramUser): string {
     "",
     "/chains base robinhood - 设置订阅网络",
     "/status - 查看设置",
+    "/search <代币CA> - 查询项目及 Virtual 官方关注情况",
     "/tax <代币CA> - 查询累计反狙击税",
     "/efdv <代币CA> - 查询链上实时 FDV / 真实 eFDV",
     "/test - 发送连接测试通知",

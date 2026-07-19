@@ -49,6 +49,7 @@ http://127.0.0.1:3000/health
 - “查询 Upcoming”：实时查询一次 Launch Radar。
 - `/status`：查看当前状态。
 - `/test`：测试 Telegram 收发。
+- `/search <代币CA>`：查询 Virtuals 项目并实时检测一次 8 名官方人员的关注情况，返回与自动通知相同的信息格式。
 - `/tax <代币CA>`：从代币发射区块扫描到“发射后 98 分钟”或当前最新区块（取较早者），只累计与该代币交易关联、且转入固定税收地址的 VIRTUAL；后续查询采用 SQLite 增量扫描。
 - `/efdv <代币CA>`：从最新区块直接读取 Bonding/毕业后 LP 储备、代币总供应量、Pair 的 `taxStartTime`、BondingV5 的税率类型和链上持续时间，返回当前 FDV；反狙击税仍有效时同时返回真实 eFDV，结束后直接返回 FDV。
 
