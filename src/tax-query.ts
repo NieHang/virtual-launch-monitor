@@ -30,8 +30,9 @@ interface RpcLog {
   data: string;
 }
 interface RpcBlock { timestamp: string }
-interface RpcReceipt { logs: RpcLog[] }
+interface RpcReceipt { to: string | null; logs: RpcLog[] }
 interface RpcResponse<T> { result?: T; error?: { code: number; message: string } }
+interface LaunchInfo { blockNumber: number; bondingPool: string }
 
 export interface TaxQueryResult {
   chainKey: ChainKey;
@@ -59,13 +60,16 @@ export class TaxQueryService {
     const latestHex = await rpc<string>(chain.rpcUrl, "eth_blockNumber", []);
     const latestBlock = parseHexNumber(latestHex, "latest block");
     const cached = this.store?.getTaxScan(project.chainKey, tokenAddress);
-    const launchBlock = cached?.launchBlock ?? await findLaunchBlock(
+    const launch = cached
+      ? await getLaunchInfoAtBlock(chain.rpcUrl, chain.launchContract, tokenAddress, cached.launchBlock)
+      : await findLaunchInfo(
         chain.rpcUrl,
         chain.launchContract,
         tokenAddress,
         Math.floor(project.launchedAt.getTime() / 1000),
         latestBlock,
       );
+    const launchBlock = launch.blockNumber;
     const taxWindowEndsAt = Math.floor(project.launchedAt.getTime() / 1000) + MAX_TAX_WINDOW_SECONDS;
     const scanToBlock = taxWindowEndsAt >= Math.floor(Date.now() / 1000)
       ? latestBlock
@@ -83,7 +87,7 @@ export class TaxQueryService {
       for (let index = 0; index < batch.length; index += 1) {
         const log = batch[index];
         const receipt = receipts[index];
-        if (!log || !receipt || !receiptContainsTokenTransfer(receipt, tokenAddress)) continue;
+        if (!log || !receipt || !taxLogBelongsToTokenBuy(receipt, log, tokenAddress, launch.bondingPool)) continue;
         taxWei += parseHexBigInt(log.data);
         transactionCount += 1;
       }
@@ -110,9 +114,26 @@ export class TaxQueryService {
   }
 }
 
-export function receiptContainsTokenTransfer(receipt: Pick<RpcReceipt, "logs">, tokenAddress: string): boolean {
-  const normalized = tokenAddress.toLowerCase();
-  return receipt.logs.some((log) => log.address.toLowerCase() === normalized && log.topics[0]?.toLowerCase() === TRANSFER_TOPIC);
+export function taxLogBelongsToTokenBuy(
+  receipt: Pick<RpcReceipt, "logs">,
+  taxLog: Pick<RpcLog, "address" | "topics">,
+  tokenAddress: string,
+  bondingPool: string,
+): boolean {
+  const payer = topicAddress(taxLog.topics[1]);
+  if (!payer) return false;
+  const targetTokenLeavesPool = receipt.logs.some((log) =>
+    log.address.toLowerCase() === tokenAddress.toLowerCase()
+    && log.topics[0]?.toLowerCase() === TRANSFER_TOPIC
+    && topicAddress(log.topics[1]) === bondingPool.toLowerCase()
+  );
+  const payerFundsTargetPool = receipt.logs.some((log) =>
+    log.address.toLowerCase() === taxLog.address.toLowerCase()
+    && log.topics[0]?.toLowerCase() === TRANSFER_TOPIC
+    && topicAddress(log.topics[1]) === payer
+    && topicAddress(log.topics[2]) === bondingPool.toLowerCase(),
+  );
+  return targetTokenLeavesPool && payerFundsTargetPool;
 }
 
 export function formatVirtual(wei: bigint): string {
@@ -129,13 +150,18 @@ function normalizeAddress(value: string): string | undefined {
 
 function addressTopic(address: string): string { return `0x${address.slice(2).toLowerCase().padStart(64, "0")}`; }
 
-async function findLaunchBlock(
+function topicAddress(topic?: string): string | undefined {
+  if (!topic || !/^0x[0-9a-fA-F]{64}$/.test(topic)) return undefined;
+  return `0x${topic.slice(-40).toLowerCase()}`;
+}
+
+async function findLaunchInfo(
   rpcUrl: string,
   launchContract: string,
   tokenAddress: string,
   launchedAt: number,
   latestBlock: number,
-): Promise<number> {
+): Promise<LaunchInfo> {
   try {
     const sampleBlockNumber = Math.max(0, latestBlock - 10_000);
     const [latest, sample] = await Promise.all([
@@ -154,11 +180,43 @@ async function findLaunchBlock(
       toBlock: toHex(Math.min(latestBlock, estimatedBlock + searchRadius)),
     }]);
     const launchLog = logs[0];
-    if (launchLog) return parseHexNumber(launchLog.blockNumber, "launch block");
+    if (launchLog) return launchInfoFromLog(launchLog);
   } catch {
     // Some providers cap eth_getLogs ranges. Timestamp lookup is slower but portable.
   }
-  return findBlockAtOrBefore(rpcUrl, launchedAt, latestBlock);
+  const approximateBlock = await findBlockAtOrBefore(rpcUrl, launchedAt, latestBlock);
+  const logs = await rpc<RpcLog[]>(rpcUrl, "eth_getLogs", [{
+    address: launchContract,
+    topics: [LAUNCH_TOPIC, addressTopic(tokenAddress)],
+    fromBlock: toHex(Math.max(0, approximateBlock - 1_000)),
+    toBlock: toHex(Math.min(latestBlock, approximateBlock + 1_000)),
+  }]);
+  const launchLog = logs[0];
+  if (!launchLog) throw new Error("Could not locate the token launch event");
+  return launchInfoFromLog(launchLog);
+}
+
+async function getLaunchInfoAtBlock(
+  rpcUrl: string,
+  launchContract: string,
+  tokenAddress: string,
+  launchBlock: number,
+): Promise<LaunchInfo> {
+  const logs = await rpc<RpcLog[]>(rpcUrl, "eth_getLogs", [{
+    address: launchContract,
+    topics: [LAUNCH_TOPIC, addressTopic(tokenAddress)],
+    fromBlock: toHex(launchBlock),
+    toBlock: toHex(launchBlock),
+  }]);
+  const launchLog = logs[0];
+  if (!launchLog) throw new Error("Cached launch block does not contain the token launch event");
+  return launchInfoFromLog(launchLog);
+}
+
+function launchInfoFromLog(log: RpcLog): LaunchInfo {
+  const bondingPool = topicAddress(log.topics[2]);
+  if (!bondingPool) throw new Error("Token launch event does not contain a bonding pool");
+  return { blockNumber: parseHexNumber(log.blockNumber, "launch block"), bondingPool };
 }
 
 async function findBlockAtOrBefore(rpcUrl: string, timestamp: number, latestBlock: number, lowerBound = 0): Promise<number> {

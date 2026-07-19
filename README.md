@@ -61,6 +61,20 @@ http://127.0.0.1:3000/health
 
 当前税率按合约 Router 的实际逻辑计算：以最新区块时间减去 Pair 的 `taxStartTime`（旧 Pair 回退到 `startTime`），再结合 `BondingConfig.getAntiSniperDuration(type)` 线性递减。不同类型可以是 60 秒、600 秒或 98 分钟，不能统一按官网倒计时或固定 98 分钟推断。
 
+## Virtual 官方 X 关注检测
+
+在 `.env` 中配置 X Developer App 的 App-only Bearer Token：
+
+```dotenv
+X_BEARER_TOKEN=你的_X_API_BEARER_TOKEN
+```
+
+- 新发射项目只检测一次，并把第一次检测快照保存到 SQLite；服务重启后不会重复检测。
+- 8 名 Virtual 官方人员中只要有一人关注项目，Telegram 消息就会标记为“重点关注”。
+- “查询 Upcoming”每执行一次都会重新检测本次 Launch Radar 项目，并把重点项目排在前面。
+- X API 查询失败时显示“未知”，不会错误显示为 `0/8`。
+- X API 按量计费；请在 X Developer Console 中设置合理的消费上限。
+
 ## Telegram 白名单
 
 三名用户继续共用同一个 Bot Token。将允许使用 Bot 的 Telegram Chat ID 写入 `.env`：

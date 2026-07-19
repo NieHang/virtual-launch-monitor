@@ -4,6 +4,7 @@ import { z } from "zod";
 const envSchema = z.object({
   SQLITE_PATH: z.string().default("./data/monitor.sqlite"),
   TELEGRAM_BOT_TOKEN: z.preprocess((value) => value === "" ? undefined : value, z.string().optional()),
+  X_BEARER_TOKEN: z.preprocess((value) => value === "" ? undefined : value, z.string().optional()),
   TELEGRAM_ALLOWED_CHAT_IDS: z.string().default("").transform((value, context) => {
     const chatIds = value.split(/[\s,]+/).filter(Boolean);
     const invalid = chatIds.find((chatId) => !/^-?\d+$/.test(chatId));

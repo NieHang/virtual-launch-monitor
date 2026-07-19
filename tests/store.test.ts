@@ -64,6 +64,25 @@ describe("SqliteStore", () => {
     expect(store.claimOutbox(10).map((entry) => entry.chatId)).toEqual(["active"]);
   });
 
+  it("persists only the first launch attention snapshot", () => {
+    const store = createStore();
+    store.saveLaunchAttention("100", {
+      status: "matched",
+      followers: [{ userId: "1", username: "IntoPurpleMoon", role: "Robotics" }],
+      checkedAt: "2026-07-19T00:00:00.000Z",
+    });
+    store.saveLaunchAttention("100", {
+      status: "none",
+      followers: [],
+      checkedAt: "2026-07-20T00:00:00.000Z",
+    });
+    expect(store.getLaunchAttention("100")).toMatchObject({
+      status: "matched",
+      checkedAt: "2026-07-19T00:00:00.000Z",
+      followers: [{ username: "IntoPurpleMoon" }],
+    });
+  });
+
   it("disables existing users and discards queued alerts outside the whitelist", () => {
     const directory = mkdtempSync(join(tmpdir(), "virtual-launch-monitor-"));
     tempDirectories.push(directory);

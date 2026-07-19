@@ -20,6 +20,23 @@ export interface LiveProject {
   projectTelegram?: string;
 }
 
+export type XAttentionStatus = "matched" | "none" | "unknown";
+
+export interface OfficialXFollower {
+  userId: string;
+  username: string;
+  role: string;
+}
+
+export interface XAttentionResult {
+  status: XAttentionStatus;
+  projectUsername?: string;
+  projectUserId?: string;
+  followers: OfficialXFollower[];
+  checkedAt: string;
+  error?: string;
+}
+
 export interface AlertPayload {
   virtualId: string;
   chainKey: ChainKey;
@@ -30,6 +47,7 @@ export interface AlertPayload {
   projectTwitter: string;
   projectTelegram?: string;
   explorer: string;
+  xAttention?: XAttentionResult;
 }
 
 export interface OutboxItem {

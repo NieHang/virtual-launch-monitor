@@ -1,12 +1,13 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
-import { fetchUpcomingProjects, type UpcomingProject } from "./launch-radar.js";
+import { fetchUpcomingProjects, fetchUpcomingProjectTwitter, type UpcomingProject } from "./launch-radar.js";
 import { logger } from "./logger.js";
 import { formatVirtualFdv, type RealCostQueryService, type RealCostResult } from "./real-cost-query.js";
 import type { SqliteStore } from "./store.js";
 import { formatVirtual, type TaxQueryResult, type TaxQueryService } from "./tax-query.js";
 import { toBeijingIsoString } from "./time.js";
-import type { AlertPayload, ChainKey, TelegramUser } from "./types.js";
+import type { AlertPayload, ChainKey, TelegramUser, XAttentionResult } from "./types.js";
+import type { XAttentionService } from "./x-attention.js";
 
 interface TelegramResponse<T> {
   ok: boolean;
@@ -68,6 +69,7 @@ export class TelegramBot {
     private readonly allowedChatIds: ReadonlySet<string> = new Set(),
     private readonly taxQueryService?: TaxQueryService,
     private readonly realCostQueryService?: RealCostQueryService,
+    private readonly xAttentionService?: XAttentionService,
   ) {}
 
   start(): void { this.running = true; void this.loop(); }
@@ -196,8 +198,27 @@ export class TelegramBot {
       await this.api.sendMessage(chatId, "当前没有 Upcoming 项目。", notificationKeyboard(this.requireUser(chatId).enabled));
       return;
     }
-    const blocks = projects.map(formatUpcomingProject);
-    let text = `📡 Virtuals Upcoming 项目（${projects.length}）`;
+    const checked = await mapWithConcurrency(projects, 4, async (project) => {
+      let projectTwitter = project.projectTwitter;
+      try {
+        projectTwitter ??= await fetchUpcomingProjectTwitter(project.virtualId);
+      } catch (error) {
+        return { project, attention: unknownAttention(error) };
+      }
+      if (!projectTwitter) return { project, attention: unknownAttention("项目没有认证 X") };
+      if (!this.xAttentionService) return { project: { ...project, projectTwitter }, attention: unknownAttention("X 关注检测未启用") };
+      return {
+        project: { ...project, projectTwitter },
+        attention: await this.xAttentionService.checkProject(projectTwitter),
+      };
+    });
+    checked.sort((left, right) => {
+      const attentionDifference = right.attention.followers.length - left.attention.followers.length;
+      return attentionDifference || left.project.launchedAt.getTime() - right.project.launchedAt.getTime();
+    });
+    const blocks = checked.map(({ project, attention }) => formatUpcomingProject(project, attention));
+    const highlighted = checked.filter(({ attention }) => attention.status === "matched").length;
+    let text = `📡 Virtuals Upcoming 项目（${projects.length}）\n🔥 重点关注：${highlighted}`;
     for (const block of blocks) {
       if (`${text}\n\n${block}`.length > 3800) {
         await this.api.sendMessage(chatId, text);
@@ -251,12 +272,14 @@ export class NotificationWorker {
 
 export function formatAlert(payload: AlertPayload): string {
   const title = payload.tokenSymbol ? `${payload.tokenName ?? payload.tokenSymbol} ($${payload.tokenSymbol})` : payload.tokenName ?? payload.tokenAddress;
+  const attention = formatAttention(payload.xAttention);
   return [
-    "🔥 Virtuals 认证项目新币发射",
+    payload.xAttention?.status === "matched" ? "🚨 Virtual 官方重点关注项目" : "🔥 Virtuals 认证项目新币发射",
     `网络：${payload.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
     `项目：${title}`,
     `发射时间：${payload.launchedAt}`,
     `项目认证 X：${payload.projectTwitter}`,
+    ...attention,
     ...(payload.projectTelegram ? [`项目认证 Telegram：${payload.projectTelegram}`] : []),
     `Token：${payload.tokenAddress}`,
     `项目详情：https://app.virtuals.io/virtuals/${payload.virtualId}`,
@@ -384,14 +407,48 @@ function formatDuration(seconds: number): string {
   return minutes > 0 ? `${minutes}分${remainder}秒` : `${remainder}秒`;
 }
 
-function formatUpcomingProject(project: UpcomingProject): string {
+export function formatUpcomingProject(project: UpcomingProject, attention: XAttentionResult): string {
   const title = project.symbol ? `${project.name} ($${project.symbol})` : project.name;
   return [
-    `项目：${title}`,
+    `${attention.status === "matched" ? "🔥 重点关注\n" : ""}项目：${title}`,
     `网络：${project.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
     `计划发射：${toBeijingIsoString(project.launchedAt)}`,
+    ...(project.projectTwitter ? [`项目认证 X：${project.projectTwitter}`] : []),
+    ...formatAttention(attention),
     `项目详情：https://app.virtuals.io/virtuals/${project.virtualId}`,
   ].join("\n");
+}
+
+function formatAttention(attention?: XAttentionResult): string[] {
+  if (!attention) return [];
+  if (attention.status === "unknown") return [`V官方关注：未知${attention.error ? `（${attention.error}）` : ""}`];
+  if (attention.status === "none") return ["V官方关注：0/8"];
+  return [
+    `V官方关注：${attention.followers.length}/8 🔥`,
+    ...attention.followers.map((follower) => `• ${follower.role}：@${follower.username}`),
+  ];
+}
+
+function unknownAttention(error: unknown): XAttentionResult {
+  return {
+    status: "unknown",
+    followers: [],
+    checkedAt: new Date().toISOString(),
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await worker(items[index]!);
+    }
+  });
+  await Promise.all(runners);
+  return results;
 }
 
 class TelegramApiError extends Error {

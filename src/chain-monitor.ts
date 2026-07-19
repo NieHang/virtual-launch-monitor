@@ -4,6 +4,7 @@ import { fetchLaunchById, fetchLaunchByToken } from "./live-monitor.js";
 import { logger } from "./logger.js";
 import type { SqliteStore } from "./store.js";
 import type { ChainKey } from "./types.js";
+import type { XAttentionService } from "./x-attention.js";
 
 const LAUNCH_TOPIC = "0xb9ee8aa6d909a3efd0bf1b0bc2bde7f998f7ad30178b0d45f9227f5382cebc8f";
 
@@ -37,7 +38,7 @@ export class ChainLaunchMonitor {
   private readonly lastBlocks = new Map<ChainKey, number>();
   private readonly resolvingTokens = new Set<string>();
 
-  constructor(private readonly store: SqliteStore) {}
+  constructor(private readonly store: SqliteStore, private readonly xAttention: XAttentionService) {}
 
   async start(): Promise<void> {
     this.stopped = false;
@@ -134,12 +135,16 @@ export class ChainLaunchMonitor {
             }
             const now = new Date();
             const isNew = this.store.registerLiveLaunch(project, now, env.LIVE_LAUNCH_MAX_AGE_MS);
-            const queued = isNew ? this.store.enqueueForActiveUsers(project) : 0;
+            const attention = isNew ? await this.xAttention.checkProject(project.projectTwitter!) : undefined;
+            if (attention) this.store.saveLaunchAttention(project.virtualId, attention);
+            const queued = isNew ? this.store.enqueueForActiveUsers(project, attention) : 0;
             logger.info("On-chain launch resolved", {
               virtualId: project.virtualId,
               token: project.tokenAddress,
               chain: project.chainKey,
               qualified: Boolean(project.projectTwitter),
+              officialFollowers: attention?.followers.length,
+              attentionStatus: attention?.status,
               queued,
               lookup: virtualId ? "virtual-id" : "token-address",
               resolutionMs: now.getTime() - project.launchedAt.getTime(),
