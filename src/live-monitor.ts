@@ -3,6 +3,10 @@ import { logger } from "./logger.js";
 import type { SqliteStore } from "./store.js";
 import type { ChainKey, LiveProject } from "./types.js";
 
+interface VirtualsSocials {
+  VERIFIED_LINKS?: { TWITTER?: string | null; TELEGRAM?: string | null } | null;
+}
+
 interface VirtualsItem {
   id?: number;
   name?: string;
@@ -14,9 +18,8 @@ interface VirtualsItem {
   tokenAddress?: string | null;
   lpAddress?: string | null;
   launchedAt?: string | null;
-  socials?: {
-    VERIFIED_LINKS?: { TWITTER?: string | null; TELEGRAM?: string | null } | null;
-  } | null;
+  creator?: { socials?: VirtualsSocials | null } | null;
+  socials?: VirtualsSocials | null;
 }
 
 interface VirtualsResponse { data?: VirtualsItem[] }
@@ -142,7 +145,10 @@ export function toLiveProject(item: VirtualsItem): LiveProject[] {
   const tokenAddress = item.preToken ?? item.tokenAddress;
   const launchedAt = item.launchedAt ? new Date(item.launchedAt) : undefined;
   if (!item.id || !chainKey || !tokenAddress || !launchedAt || !Number.isFinite(launchedAt.getTime())) return [];
-  const verified = item.socials?.VERIFIED_LINKS;
+  const creatorVerified = item.creator?.socials?.VERIFIED_LINKS;
+  const projectVerified = item.socials?.VERIFIED_LINKS;
+  const projectTwitter = creatorVerified?.TWITTER ?? projectVerified?.TWITTER;
+  const projectTelegram = creatorVerified?.TELEGRAM ?? projectVerified?.TELEGRAM;
   return [{
     virtualId: String(item.id),
     chainKey,
@@ -152,8 +158,8 @@ export function toLiveProject(item: VirtualsItem): LiveProject[] {
     ...(item.preTokenPair ? { preTokenPair: item.preTokenPair } : {}),
     ...(item.lpAddress ? { lpAddress: item.lpAddress } : {}),
     launchedAt,
-    ...(verified?.TWITTER ? { projectTwitter: verified.TWITTER } : {}),
-    ...(verified?.TELEGRAM ? { projectTelegram: verified.TELEGRAM } : {}),
+    ...(projectTwitter ? { projectTwitter } : {}),
+    ...(projectTelegram ? { projectTelegram } : {}),
   }];
 }
 
