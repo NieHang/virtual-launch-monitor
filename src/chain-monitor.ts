@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { env } from "./config.js";
 import { fetchLaunchById, fetchLaunchByToken } from "./live-monitor.js";
+import { shouldNotifyForAttention, type FrontrunAttentionCoordinator } from "./frontrun.js";
 import { logger } from "./logger.js";
 import type { SqliteStore } from "./store.js";
 import type { ChainKey } from "./types.js";
@@ -37,7 +38,10 @@ export class ChainLaunchMonitor {
   private readonly lastBlocks = new Map<ChainKey, number>();
   private readonly resolvingTokens = new Set<string>();
 
-  constructor(private readonly store: SqliteStore) {}
+  constructor(
+    private readonly store: SqliteStore,
+    private readonly frontrun?: FrontrunAttentionCoordinator,
+  ) {}
 
   async start(): Promise<void> {
     this.stopped = false;
@@ -134,12 +138,18 @@ export class ChainLaunchMonitor {
             }
             const now = new Date();
             const isNew = this.store.registerLiveLaunch(project, now, env.LIVE_LAUNCH_MAX_AGE_MS);
-            const queued = isNew ? this.store.enqueueForActiveUsers(project) : 0;
+            const check = isNew ? await this.frontrun?.forLaunch(project) : undefined;
+            const attention = check?.status === "success" ? check.attention : undefined;
+            const queued = isNew && shouldNotifyForAttention(attention)
+              ? this.store.enqueueForActiveUsers(project, attention)
+              : 0;
             logger.info("On-chain launch resolved", {
               virtualId: project.virtualId,
               token: project.tokenAddress,
               chain: project.chainKey,
               qualified: Boolean(project.projectTwitter),
+              smartFollowers: attention?.totalCount,
+              frontrunStatus: check?.status ?? "disabled",
               queued,
               lookup: virtualId ? "virtual-id" : "token-address",
               resolutionMs: now.getTime() - project.launchedAt.getTime(),

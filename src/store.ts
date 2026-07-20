@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AlertPayload, ChainKey, LiveProject, OutboxItem, StoreStats, TelegramUser } from "./types.js";
+import type { AlertPayload, ChainKey, FrontrunAttention, FrontrunCheck, LiveProject, OutboxItem, StoreStats, TelegramUser } from "./types.js";
 import { toBeijingIsoString } from "./time.js";
 
 export class SqliteStore {
@@ -74,7 +74,7 @@ export class SqliteStore {
     return false;
   }
 
-  enqueueForActiveUsers(project: LiveProject): number {
+  enqueueForActiveUsers(project: LiveProject, frontrunAttention?: FrontrunAttention): number {
     if (!project.projectTwitter) return 0;
     const users = this.db.prepare("SELECT * FROM telegram_users WHERE enabled = 1").all() as unknown as UserRow[];
     const insert = this.db.prepare(`
@@ -91,6 +91,7 @@ export class SqliteStore {
       projectTwitter: project.projectTwitter,
       ...(project.projectTelegram ? { projectTelegram: project.projectTelegram } : {}),
       explorer: project.chainKey === "base" ? "https://basescan.org" : "https://robinhoodchain.blockscout.com",
+      ...(frontrunAttention ? { frontrunAttention } : {}),
     };
     let count = 0;
     for (const row of users) {
@@ -100,6 +101,39 @@ export class SqliteStore {
       count += Number(result.changes);
     }
     return count;
+  }
+
+  getFrontrunCheck(virtualId: string): FrontrunCheck | undefined {
+    const row = this.db.prepare("SELECT status, payload, last_error FROM frontrun_checks WHERE virtual_id = ?")
+      .get(virtualId) as FrontrunCheckRow | undefined;
+    if (!row) return undefined;
+    if (row.status === "success" && row.payload) {
+      return { status: "success", attention: JSON.parse(row.payload) as FrontrunAttention };
+    }
+    if (row.status === "failed") return { status: "failed", error: row.last_error ?? "Frontrun 查询失败" };
+    return { status: "checking" };
+  }
+
+  claimFrontrunCheck(virtualId: string): boolean {
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO frontrun_checks (virtual_id, status, checked_at)
+      VALUES (?, 'checking', ?)
+    `).run(virtualId, Date.now());
+    return Number(result.changes) === 1;
+  }
+
+  saveFrontrunCheck(virtualId: string, attention: FrontrunAttention): void {
+    this.db.prepare(`
+      UPDATE frontrun_checks SET status = 'success', payload = ?, last_error = NULL, checked_at = ?
+      WHERE virtual_id = ?
+    `).run(JSON.stringify(attention), Date.now(), virtualId);
+  }
+
+  failFrontrunCheck(virtualId: string, error: string): void {
+    this.db.prepare(`
+      UPDATE frontrun_checks SET status = 'failed', last_error = ?, checked_at = ?
+      WHERE virtual_id = ?
+    `).run(error.slice(0, 2000), Date.now(), virtualId);
   }
 
   claimOutbox(limit: number): OutboxItem[] {
@@ -235,6 +269,13 @@ export class SqliteStore {
         updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
         PRIMARY KEY(chain_key, token_address)
       );
+      CREATE TABLE IF NOT EXISTS frontrun_checks (
+        virtual_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        payload TEXT,
+        last_error TEXT,
+        checked_at INTEGER NOT NULL
+      );
       UPDATE notification_outbox SET status = 'failed', next_attempt_at = 0 WHERE status = 'sending';
     `);
     const taxScanColumns = this.db.prepare("PRAGMA table_info(tax_scans)").all() as unknown as Array<{ name: string }>;
@@ -247,6 +288,7 @@ export class SqliteStore {
 interface UserRow { chat_id: string; username: string | null; enabled: number; chains: string }
 interface OutboxRow { id: number; chat_id: string; payload: string; attempts: number }
 interface TaxScanRow { launch_block: number; scanned_to_block: number; tax_wei: string; transaction_count: number }
+interface FrontrunCheckRow { status: string; payload: string | null; last_error: string | null }
 export interface TaxScanState { launchBlock: number; scannedToBlock: number; taxWei: bigint; transactionCount: number }
 
 function rowToUser(row: UserRow): TelegramUser {

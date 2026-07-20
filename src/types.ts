@@ -30,7 +30,27 @@ export interface AlertPayload {
   projectTwitter: string;
   projectTelegram?: string;
   explorer: string;
+  frontrunAttention?: FrontrunAttention;
 }
+
+export interface SmartFollower {
+  twitter: string;
+  name?: string;
+  primaryLabel?: string;
+  position?: string;
+}
+
+export interface FrontrunAttention {
+  totalCount: number;
+  smartFollowers: SmartFollower[];
+  virtualOfficials: string[];
+  resolved: boolean;
+}
+
+export type FrontrunCheck =
+  | { status: "checking" }
+  | { status: "success"; attention: FrontrunAttention }
+  | { status: "failed"; error: string };
 
 export interface OutboxItem {
   id: number;

@@ -2,12 +2,13 @@ import { setTimeout as delay } from "node:timers/promises";
 import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import { fetchUpcomingProjects, type UpcomingProject } from "./launch-radar.js";
 import { fetchLaunchByToken } from "./live-monitor.js";
+import type { FrontrunAttentionCoordinator, FrontrunService } from "./frontrun.js";
 import { logger } from "./logger.js";
 import { formatVirtualFdv, type RealCostQueryService, type RealCostResult } from "./real-cost-query.js";
 import type { SqliteStore } from "./store.js";
 import { formatVirtual, type TaxQueryResult, type TaxQueryService } from "./tax-query.js";
 import { toBeijingIsoString } from "./time.js";
-import type { AlertPayload, ChainKey, TelegramUser } from "./types.js";
+import type { AlertPayload, ChainKey, FrontrunAttention, TelegramUser } from "./types.js";
 
 interface TelegramResponse<T> {
   ok: boolean;
@@ -69,6 +70,8 @@ export class TelegramBot {
     private readonly allowedChatIds: ReadonlySet<string> = new Set(),
     private readonly taxQueryService?: TaxQueryService,
     private readonly realCostQueryService?: RealCostQueryService,
+    private readonly frontrunAttention?: FrontrunAttentionCoordinator,
+    private readonly frontrunService?: FrontrunService,
   ) {}
 
   start(): void { this.running = true; void this.loop(); }
@@ -127,6 +130,8 @@ export class TelegramBot {
         const project = await fetchLaunchByToken(tokenAddress);
         if (!project) throw new Error("未在 Virtuals 中找到这个代币 CA。");
         if (!project.projectTwitter) throw new Error("该项目没有 Virtuals 认证 X。");
+        const check = await this.frontrunAttention?.forLaunch(project);
+        const attention = check?.status === "success" ? check.attention : undefined;
         await this.api.sendMessage(chatId, formatAlert({
           virtualId: project.virtualId,
           chainKey: project.chainKey,
@@ -137,6 +142,7 @@ export class TelegramBot {
           projectTwitter: project.projectTwitter,
           ...(project.projectTelegram ? { projectTelegram: project.projectTelegram } : {}),
           explorer: project.chainKey === "base" ? "https://basescan.org" : "https://robinhoodchain.blockscout.com",
+          ...(attention ? { frontrunAttention: attention } : {}),
         }));
       } else if (command === "/tax") {
         const tokenAddress = args[0];
@@ -215,7 +221,21 @@ export class TelegramBot {
       await this.api.sendMessage(chatId, "当前没有 Upcoming 项目。", notificationKeyboard(this.requireUser(chatId).enabled));
       return;
     }
-    const blocks = projects.map(formatUpcomingProject);
+    const blocks: string[] = [];
+    for (const project of projects) {
+      let attention: FrontrunAttention | undefined;
+      if (project.projectTwitter && this.frontrunService) {
+        try {
+          attention = await this.frontrunService.getSmartFollowers(project.projectTwitter);
+        } catch (error) {
+          logger.warn("Launch Radar Frontrun lookup failed", {
+            virtualId: project.virtualId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      blocks.push(formatUpcomingProject(project, attention));
+    }
     let text = `📡 Virtuals Upcoming 项目（${projects.length}）`;
     for (const block of blocks) {
       if (`${text}\n\n${block}`.length > 3800) {
@@ -270,12 +290,19 @@ export class NotificationWorker {
 
 export function formatAlert(payload: AlertPayload): string {
   const title = payload.tokenSymbol ? `${payload.tokenName ?? payload.tokenSymbol} ($${payload.tokenSymbol})` : payload.tokenName ?? payload.tokenAddress;
+  const attention = payload.frontrunAttention;
+  const alertTitle = attention?.virtualOfficials.length
+    ? "🚨🚨🚨 最高提醒：Virtual 官方人员关注"
+    : attention && attention.totalCount > 0
+      ? "⚠️⚠️ 重要提醒：Smart Followers 关注"
+      : "🔥 Virtuals 认证项目新币发射";
   return [
-    "🔥 Virtuals 认证项目新币发射",
+    alertTitle,
     `网络：${payload.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
     `项目：${title}`,
     `发射时间：${payload.launchedAt}`,
     `项目认证 X：${payload.projectTwitter}`,
+    ...(attention ? formatFrontrunAttention(attention) : ["Smart Followers：未知"]),
     ...(payload.projectTelegram ? [`项目认证 Telegram：${payload.projectTelegram}`] : []),
     `Token：${payload.tokenAddress}`,
     `项目详情：https://app.virtuals.io/virtuals/${payload.virtualId}`,
@@ -404,15 +431,32 @@ function formatDuration(seconds: number): string {
   return minutes > 0 ? `${minutes}分${remainder}秒` : `${remainder}秒`;
 }
 
-export function formatUpcomingProject(project: UpcomingProject): string {
+export function formatUpcomingProject(project: UpcomingProject, attention?: FrontrunAttention): string {
   const title = project.symbol ? `${project.name} ($${project.symbol})` : project.name;
   return [
+    ...(attention?.virtualOfficials.length
+      ? ["🚨 最高关注：Virtual 官方人员关注"]
+      : attention && attention.totalCount > 0
+        ? ["⚠️ 重要关注：存在 Smart Followers"]
+        : []),
     `项目：${title}`,
     `网络：${project.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
     `计划发射：${toBeijingIsoString(project.launchedAt)}`,
     ...(project.projectTwitter ? [`项目认证 X：${project.projectTwitter}`] : []),
+    ...(attention ? formatFrontrunAttention(attention) : ["Smart Followers：未知"]),
     `项目详情：https://app.virtuals.io/virtuals/${project.virtualId}`,
   ].join("\n");
+}
+
+function formatFrontrunAttention(attention: FrontrunAttention): string[] {
+  const handles = attention.smartFollowers.map(({ twitter }) => `@${twitter}`).join("、");
+  return [
+    `Smart Followers：${attention.totalCount}${attention.resolved ? "" : "（数据更新中）"}`,
+    ...(handles ? [`Top 20 Smart Followers：${handles}`] : []),
+    ...(attention.virtualOfficials.length
+      ? [`Virtual 官方关注：${attention.virtualOfficials.map((handle) => `@${handle}`).join("、")}`]
+      : []),
+  ];
 }
 
 class TelegramApiError extends Error {

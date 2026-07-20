@@ -7,6 +7,7 @@
 - 每秒监听 Base 和 Robinhood Chain 的 Virtuals 发射合约事件。
 - 链上捕获 Token 后，优先从发射交易解析项目 ID 并直读详情；无法解析时按 Token 地址反查，官方最新列表仅作为最终兜底。
 - 只对“刚发射且项目自身 `socials.VERIFIED_LINKS.TWITTER` 存在”的项目发送自动通知。
+- 每个新发射项目只查询一次 Frontrun Top 20；Smart Followers 为 0 时不通知，大于 0 时发送重要提醒，Top 20 命中 Virtual 官方人员时发送最高提醒。
 - 启动时的最新页只建立基线，绝不补发历史项目。
 - 即使旧项目在服务启动后才被官方列表索引，也只登记、不补发。
 - 未见过但已经超过 5 分钟的项目只登记、不通知。
@@ -21,7 +22,7 @@
 ```powershell
 pnpm install
 Copy-Item .env.example .env
-# 在 .env 中填写 TELEGRAM_BOT_TOKEN
+# 在 .env 中填写 TELEGRAM_BOT_TOKEN 和 FrontRunKey
 pnpm test
 pnpm build
 pnpm start
@@ -50,6 +51,8 @@ http://127.0.0.1:3000/health
 - `/status`：查看当前状态。
 - `/test`：测试 Telegram 收发。
 - `/search <代币CA>`：查询 Virtuals 项目，返回与自动通知相同的信息格式。
+
+“查询 Upcoming”会在每次点击时重新查询每个项目的 Frontrun Top 20；`/search` 和自动发射通知会复用数据库中已经保存的单次查询结果，避免重复消耗 API Credits。
 - `/tax <代币CA>`：从代币发射区块扫描到“发射后 98 分钟”或当前最新区块（取较早者），只累计与该代币交易关联、且转入固定税收地址的 VIRTUAL；后续查询采用 SQLite 增量扫描。
 - `/efdv <代币CA>`：从最新区块直接读取 Bonding/毕业后 LP 储备、代币总供应量、Pair 的 `taxStartTime`、BondingV5 的税率类型和链上持续时间，返回当前 FDV；反狙击税仍有效时同时返回真实 eFDV，结束后直接返回 FDV。
 

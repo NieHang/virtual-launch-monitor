@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCompactUsd, isTelegramChatAllowed } from "../src/telegram.js";
+import { formatAlert, formatCompactUsd, isTelegramChatAllowed } from "../src/telegram.js";
 
 describe("Telegram whitelist", () => {
   it("keeps backward-compatible open access when the whitelist is empty", () => {
@@ -11,6 +11,41 @@ describe("Telegram whitelist", () => {
     expect(isTelegramChatAllowed("123", allowed)).toBe(true);
     expect(isTelegramChatAllowed("-456", allowed)).toBe(true);
     expect(isTelegramChatAllowed("789", allowed)).toBe(false);
+  });
+});
+
+describe("Frontrun alert formatting", () => {
+  const base = {
+    virtualId: "123",
+    chainKey: "base" as const,
+    tokenAddress: "0x0000000000000000000000000000000000000001",
+    tokenName: "Project",
+    launchedAt: "2026-07-20T08:00:00+08:00",
+    projectTwitter: "https://x.com/project",
+    explorer: "https://basescan.org",
+  };
+
+  it("formats an important Smart Followers alert with handles", () => {
+    const text = formatAlert({ ...base, frontrunAttention: {
+      totalCount: 2,
+      smartFollowers: [{ twitter: "kol_one" }, { twitter: "kol_two" }],
+      virtualOfficials: [],
+      resolved: true,
+    } });
+    expect(text).toContain("重要提醒");
+    expect(text).toContain("Smart Followers：2");
+    expect(text).toContain("@kol_one、@kol_two");
+  });
+
+  it("formats the highest alert when a Virtual official is in the top list", () => {
+    const text = formatAlert({ ...base, frontrunAttention: {
+      totalCount: 10,
+      smartFollowers: [{ twitter: "hananyss" }],
+      virtualOfficials: ["hananyss"],
+      resolved: true,
+    } });
+    expect(text).toContain("最高提醒");
+    expect(text).toContain("Virtual 官方关注：@hananyss");
   });
 });
 

@@ -1,4 +1,5 @@
 import { env } from "./config.js";
+import { shouldNotifyForAttention, type FrontrunAttentionCoordinator } from "./frontrun.js";
 import { logger } from "./logger.js";
 import type { SqliteStore } from "./store.js";
 import type { ChainKey, LiveProject } from "./types.js";
@@ -32,7 +33,10 @@ export class LiveLaunchMonitor {
   private consecutiveFailures = 0;
   private startedAt?: Date;
 
-  constructor(private readonly store: SqliteStore) {}
+  constructor(
+    private readonly store: SqliteStore,
+    private readonly frontrun?: FrontrunAttentionCoordinator,
+  ) {}
 
   async start(): Promise<void> {
     this.stopped = false;
@@ -63,12 +67,18 @@ export class LiveLaunchMonitor {
             continue;
           }
           if (!this.store.registerLiveLaunch(project, now, env.LIVE_LAUNCH_MAX_AGE_MS)) continue;
-          const queued = this.store.enqueueForActiveUsers(project);
+          const check = await this.frontrun?.forLaunch(project);
+          const attention = check?.status === "success" ? check.attention : undefined;
+          const queued = shouldNotifyForAttention(attention)
+            ? this.store.enqueueForActiveUsers(project, attention)
+            : 0;
           logger.info("Qualified new launch discovered", {
             virtualId: project.virtualId,
             token: project.tokenAddress,
             chain: project.chainKey,
             launchedAt: project.launchedAt.toISOString(),
+            smartFollowers: attention?.totalCount,
+            frontrunStatus: check?.status ?? "disabled",
             queued,
           });
         }

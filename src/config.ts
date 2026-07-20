@@ -13,6 +13,7 @@ const envSchema = z.object({
     }
     return [...new Set(chatIds)];
   }),
+  FrontRunKey: z.preprocess((value) => value === "" ? undefined : value, z.string().optional()),
   BASE_RPC_URL: z.string().url().default("https://mainnet.base.org"),
   ROBINHOOD_RPC_URL: z.string().url().default("https://rpc.mainnet.chain.robinhood.com"),
   CHAIN_POLL_MS: z.coerce.number().int().min(500).default(1000),

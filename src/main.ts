@@ -1,6 +1,7 @@
 import { env } from "./config.js";
 import { ChainLaunchMonitor } from "./chain-monitor.js";
 import { startHealthServer } from "./health.js";
+import { FrontrunAttentionCoordinator, FrontrunService } from "./frontrun.js";
 import { LiveLaunchMonitor } from "./live-monitor.js";
 import { logger } from "./logger.js";
 import { RealCostQueryService } from "./real-cost-query.js";
@@ -13,12 +14,14 @@ const store = new SqliteStore(env.SQLITE_PATH, telegramAllowedChatIds);
 const telegramApi = env.TELEGRAM_BOT_TOKEN ? new TelegramApi(env.TELEGRAM_BOT_TOKEN) : undefined;
 const taxQueryService = new TaxQueryService(store);
 const realCostQueryService = new RealCostQueryService();
+const frontrunService = env.FrontRunKey ? new FrontrunService(env.FrontRunKey) : undefined;
+const frontrunAttention = new FrontrunAttentionCoordinator(store, frontrunService);
 const telegramBot = telegramApi
-  ? new TelegramBot(telegramApi, store, telegramAllowedChatIds, taxQueryService, realCostQueryService)
+  ? new TelegramBot(telegramApi, store, telegramAllowedChatIds, taxQueryService, realCostQueryService, frontrunAttention, frontrunService)
   : undefined;
 const notificationWorker = new NotificationWorker(store, telegramApi);
-const liveMonitor = new LiveLaunchMonitor(store);
-const chainMonitor = new ChainLaunchMonitor(store);
+const liveMonitor = new LiveLaunchMonitor(store, frontrunAttention);
+const chainMonitor = new ChainLaunchMonitor(store, frontrunAttention);
 const healthServer = startHealthServer(env.PORT, store);
 
 notificationWorker.start();
@@ -33,6 +36,7 @@ logger.info("Virtual Launch Monitor ready", {
   telegram: Boolean(telegramApi),
   telegramWhitelistEnabled: env.TELEGRAM_ALLOWED_CHAT_IDS.length > 0,
   telegramAllowedUsers: env.TELEGRAM_ALLOWED_CHAT_IDS.length,
+  frontrun: Boolean(frontrunService),
 });
 
 async function shutdown(signal: string): Promise<void> {
