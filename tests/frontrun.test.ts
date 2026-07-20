@@ -47,6 +47,26 @@ describe("FrontrunService", () => {
     expect(twitterUsername("https://twitter.com/hello_world/status/1")).toBe("hello_world");
     expect(twitterUsername("https://example.com/hello_world")).toBeUndefined();
   });
+
+  it("filters configured X accounts regardless of link format or casing", async () => {
+    const store = new SqliteStore(":memory:");
+    const getSmartFollowers = vi.fn();
+    const coordinator = new FrontrunAttentionCoordinator(
+      store,
+      { getSmartFollowers } as unknown as FrontrunService,
+      ["https://x.com/Example_Project", "@another_project"],
+    );
+
+    expect(coordinator.isBlocked("https://twitter.com/example_project/status/1")).toBe(true);
+    expect(coordinator.isBlocked("ANOTHER_PROJECT")).toBe(true);
+    expect(coordinator.isBlocked("https://x.com/allowed_project")).toBe(false);
+    await expect(coordinator.forLaunch(project())).resolves.toEqual({
+      status: "failed",
+      error: "项目 X 已被黑名单过滤",
+    });
+    expect(getSmartFollowers).not.toHaveBeenCalled();
+    store.close();
+  });
 });
 
 describe("FrontrunAttentionCoordinator", () => {

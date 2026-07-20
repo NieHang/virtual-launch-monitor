@@ -15,11 +15,15 @@ const telegramApi = env.TELEGRAM_BOT_TOKEN ? new TelegramApi(env.TELEGRAM_BOT_TO
 const taxQueryService = new TaxQueryService(store);
 const realCostQueryService = new RealCostQueryService();
 const frontrunService = env.FrontRunKey ? new FrontrunService(env.FrontRunKey) : undefined;
-const frontrunAttention = new FrontrunAttentionCoordinator(store, frontrunService);
+const frontrunAttention = new FrontrunAttentionCoordinator(store, frontrunService, env.XBlockList);
 const telegramBot = telegramApi
   ? new TelegramBot(telegramApi, store, telegramAllowedChatIds, taxQueryService, realCostQueryService, frontrunAttention, frontrunService)
   : undefined;
-const notificationWorker = new NotificationWorker(store, telegramApi);
+const notificationWorker = new NotificationWorker(
+  store,
+  telegramApi,
+  (projectTwitter) => frontrunAttention.isBlocked(projectTwitter),
+);
 const liveMonitor = new LiveLaunchMonitor(store, frontrunAttention);
 const chainMonitor = new ChainLaunchMonitor(store, frontrunAttention);
 const healthServer = startHealthServer(env.PORT, store);
@@ -37,6 +41,7 @@ logger.info("Virtual Launch Monitor ready", {
   telegramWhitelistEnabled: env.TELEGRAM_ALLOWED_CHAT_IDS.length > 0,
   telegramAllowedUsers: env.TELEGRAM_ALLOWED_CHAT_IDS.length,
   frontrun: Boolean(frontrunService),
+  xBlockListEntries: env.XBlockList.length,
 });
 
 async function shutdown(signal: string): Promise<void> {

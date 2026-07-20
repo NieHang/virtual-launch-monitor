@@ -257,7 +257,11 @@ export class TelegramBot {
 
 export class NotificationWorker {
   private timer?: NodeJS.Timeout;
-  constructor(private readonly store: SqliteStore, private readonly api?: TelegramApi) {}
+  constructor(
+    private readonly store: SqliteStore,
+    private readonly api?: TelegramApi,
+    private readonly isProjectTwitterBlocked: (projectTwitter: string) => boolean = () => false,
+  ) {}
 
   start(): void {
     this.timer = setInterval(() => void this.tick(), 500);
@@ -270,6 +274,14 @@ export class NotificationWorker {
     try {
       for (const item of this.store.claimOutbox(20)) {
         try {
+          if (this.isProjectTwitterBlocked(item.payload.projectTwitter)) {
+            logger.info("Queued notification discarded by X block list", {
+              virtualId: item.payload.virtualId,
+              projectTwitter: item.payload.projectTwitter,
+            });
+            this.store.markOutboxSent(item.id);
+            continue;
+          }
           const text = formatAlert(item.payload);
           if (!this.api) {
             logger.info("Telegram disabled; notification emitted to log", { chatId: item.chatId, text });

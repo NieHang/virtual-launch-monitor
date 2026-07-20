@@ -83,12 +83,31 @@ export class FrontrunService {
 }
 
 export class FrontrunAttentionCoordinator {
+  private readonly blockedTwitterUsernames: ReadonlySet<string>;
+
   constructor(
     private readonly store: SqliteStore,
     private readonly service?: FrontrunService,
-  ) {}
+    xBlockList: readonly string[] = [],
+  ) {
+    this.blockedTwitterUsernames = new Set(
+      xBlockList.flatMap((entry) => {
+        const username = twitterUsername(entry);
+        return username ? [username.toLowerCase()] : [];
+      }),
+    );
+  }
+
+  isBlocked(projectTwitter?: string): boolean {
+    if (!projectTwitter) return false;
+    const username = twitterUsername(projectTwitter);
+    return Boolean(username && this.blockedTwitterUsernames.has(username.toLowerCase()));
+  }
 
   async forLaunch(project: LiveProject): Promise<FrontrunCheck> {
+    if (this.isBlocked(project.projectTwitter)) {
+      return { status: "failed", error: "项目 X 已被黑名单过滤" };
+    }
     const existing = this.store.getFrontrunCheck(project.virtualId);
     if (existing) return existing;
     if (!this.service || !project.projectTwitter) {
