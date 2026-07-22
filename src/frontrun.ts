@@ -109,12 +109,12 @@ export class FrontrunAttentionCoordinator {
       return { status: "failed", error: "项目 X 已被黑名单过滤" };
     }
     const existing = this.store.getFrontrunCheck(project.virtualId);
-    if (existing) return existing;
+    if (existing?.status === "success" && existing.attention.resolved && existing.attention.totalCount > 0) return existing;
     if (!this.service || !project.projectTwitter) {
       return { status: "failed", error: "Frontrun 查询未启用或项目没有 X" };
     }
     if (!this.store.claimFrontrunCheck(project.virtualId)) {
-      return this.store.getFrontrunCheck(project.virtualId) ?? { status: "checking" };
+      return existing ?? this.store.getFrontrunCheck(project.virtualId) ?? { status: "checking" };
     }
     try {
       const attention = await this.service.getSmartFollowers(project.projectTwitter);

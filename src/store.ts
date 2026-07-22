@@ -45,8 +45,8 @@ export class SqliteStore {
 
   baselineLaunch(project: LiveProject, now = new Date()): void {
     this.db.prepare(`
-      INSERT INTO observed_launches (virtual_id, chain_key, launched_at, first_seen_at, qualified_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO observed_launches (virtual_id, chain_key, launched_at, first_seen_at, qualified_at, notification_eligible)
+      VALUES (?, ?, ?, ?, ?, 0)
       ON CONFLICT(virtual_id) DO UPDATE SET
         qualified_at = COALESCE(observed_launches.qualified_at, excluded.qualified_at)
     `).run(
@@ -59,19 +59,35 @@ export class SqliteStore {
   }
 
   registerLiveLaunch(project: LiveProject, now: Date, maxAgeMs: number): boolean {
-    const existing = this.db.prepare("SELECT qualified_at FROM observed_launches WHERE virtual_id = ?").get(project.virtualId) as { qualified_at: number | null } | undefined;
+    const existing = this.db.prepare("SELECT qualified_at, notification_eligible FROM observed_launches WHERE virtual_id = ?")
+      .get(project.virtualId) as { qualified_at: number | null; notification_eligible: number } | undefined;
     if (!existing) {
+      const eligible = isFresh(project, now, maxAgeMs);
       this.db.prepare(`
-        INSERT INTO observed_launches (virtual_id, chain_key, launched_at, first_seen_at, qualified_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(project.virtualId, project.chainKey, project.launchedAt.getTime(), now.getTime(), project.projectTwitter ? now.getTime() : null);
-      return Boolean(project.projectTwitter) && isFresh(project, now, maxAgeMs);
+        INSERT INTO observed_launches (virtual_id, chain_key, launched_at, first_seen_at, qualified_at, notification_eligible)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(project.virtualId, project.chainKey, project.launchedAt.getTime(), now.getTime(), project.projectTwitter ? now.getTime() : null, eligible ? 1 : 0);
+      return Boolean(project.projectTwitter) && eligible;
     }
     if (existing.qualified_at === null && project.projectTwitter) {
       this.db.prepare("UPDATE observed_launches SET qualified_at = ? WHERE virtual_id = ?").run(now.getTime(), project.virtualId);
-      return isFresh(project, now, maxAgeMs);
+      return existing.notification_eligible === 1 && isFresh(project, now, maxAgeMs);
     }
     return false;
+  }
+
+  isNotificationCandidate(project: LiveProject, now: Date, maxAgeMs: number): boolean {
+    if (!project.projectTwitter || !isFresh(project, now, maxAgeMs)) return false;
+    const row = this.db.prepare(`
+      SELECT notification_eligible
+      FROM observed_launches
+      WHERE virtual_id = ?
+        AND qualified_at IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM notification_outbox WHERE virtual_id = observed_launches.virtual_id
+        )
+    `).get(project.virtualId) as { notification_eligible: number } | undefined;
+    return row?.notification_eligible === 1;
   }
 
   enqueueForActiveUsers(project: LiveProject, frontrunAttention?: FrontrunAttention): number {
@@ -114,12 +130,29 @@ export class SqliteStore {
     return { status: "checking" };
   }
 
-  claimFrontrunCheck(virtualId: string): boolean {
+  claimFrontrunCheck(virtualId: string, retryAfterMs = 15_000, maxAttempts = 6): boolean {
+    const now = Date.now();
     const result = this.db.prepare(`
-      INSERT OR IGNORE INTO frontrun_checks (virtual_id, status, checked_at)
-      VALUES (?, 'checking', ?)
-    `).run(virtualId, Date.now());
-    return Number(result.changes) === 1;
+      INSERT OR IGNORE INTO frontrun_checks (virtual_id, status, checked_at, attempts)
+      VALUES (?, 'checking', ?, 1)
+    `).run(virtualId, now);
+    if (Number(result.changes) === 1) return true;
+    const retry = this.db.prepare(`
+      UPDATE frontrun_checks
+      SET status = 'checking', payload = NULL, last_error = NULL,
+          checked_at = ?, attempts = attempts + 1
+      WHERE virtual_id = ?
+        AND attempts < ?
+        AND checked_at <= ?
+        AND (
+          status IN ('failed', 'checking')
+          OR (status = 'success' AND (
+            json_extract(payload, '$.resolved') = 0
+            OR json_extract(payload, '$.totalCount') = 0
+          ))
+        )
+    `).run(now, virtualId, maxAttempts, now - retryAfterMs);
+    return Number(retry.changes) === 1;
   }
 
   saveFrontrunCheck(virtualId: string, attention: FrontrunAttention): void {
@@ -242,7 +275,8 @@ export class SqliteStore {
         chain_key TEXT NOT NULL,
         launched_at INTEGER NOT NULL,
         first_seen_at INTEGER NOT NULL,
-        qualified_at INTEGER
+        qualified_at INTEGER,
+        notification_eligible INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS notification_outbox (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -274,13 +308,22 @@ export class SqliteStore {
         status TEXT NOT NULL,
         payload TEXT,
         last_error TEXT,
-        checked_at INTEGER NOT NULL
+        checked_at INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 1
       );
       UPDATE notification_outbox SET status = 'failed', next_attempt_at = 0 WHERE status = 'sending';
     `);
     const taxScanColumns = this.db.prepare("PRAGMA table_info(tax_scans)").all() as unknown as Array<{ name: string }>;
     if (!taxScanColumns.some((column) => column.name === "matcher_version")) {
       this.db.exec("ALTER TABLE tax_scans ADD COLUMN matcher_version INTEGER NOT NULL DEFAULT 1");
+    }
+    const observedLaunchColumns = this.db.prepare("PRAGMA table_info(observed_launches)").all() as unknown as Array<{ name: string }>;
+    if (!observedLaunchColumns.some((column) => column.name === "notification_eligible")) {
+      this.db.exec("ALTER TABLE observed_launches ADD COLUMN notification_eligible INTEGER NOT NULL DEFAULT 0");
+    }
+    const frontrunCheckColumns = this.db.prepare("PRAGMA table_info(frontrun_checks)").all() as unknown as Array<{ name: string }>;
+    if (!frontrunCheckColumns.some((column) => column.name === "attempts")) {
+      this.db.exec("ALTER TABLE frontrun_checks ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1");
     }
   }
 }

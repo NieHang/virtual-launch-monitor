@@ -138,11 +138,18 @@ export class ChainLaunchMonitor {
             }
             const now = new Date();
             const isNew = this.store.registerLiveLaunch(project, now, env.LIVE_LAUNCH_MAX_AGE_MS);
-            const check = isNew ? await this.frontrun?.forLaunch(project) : undefined;
+            const isCandidate = isNew || this.store.isNotificationCandidate(project, now, env.LIVE_LAUNCH_MAX_AGE_MS);
+            const check = isCandidate ? await this.frontrun?.forLaunch(project) : undefined;
             const attention = check?.status === "success" ? check.attention : undefined;
-            const queued = isNew && shouldNotifyForAttention(attention)
+            const queued = isCandidate && shouldNotifyForAttention(attention)
               ? this.store.enqueueForActiveUsers(project, attention)
               : 0;
+            const attentionPending = isCandidate && Boolean(this.frontrun) && (
+              !check
+              || check.status === "checking"
+              || check.status === "failed"
+              || (check.status === "success" && (!check.attention.resolved || check.attention.totalCount === 0))
+            );
             logger.info("On-chain launch resolved", {
               virtualId: project.virtualId,
               token: project.tokenAddress,
@@ -154,7 +161,7 @@ export class ChainLaunchMonitor {
               lookup: virtualId ? "virtual-id" : "token-address",
               resolutionMs: now.getTime() - project.launchedAt.getTime(),
             });
-            return;
+            if (!attentionPending) return;
           }
         } catch (error) {
           logger.warn("On-chain launch token lookup failed", { tokenAddress, error: error instanceof Error ? error.message : String(error) });

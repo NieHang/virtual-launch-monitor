@@ -48,7 +48,17 @@ describe("SqliteStore", () => {
     const item = project();
     store.baselineLaunch(item, new Date("2026-07-17T12:01:00Z"));
     expect(store.registerLiveLaunch(item, new Date("2026-07-17T12:02:00Z"), 300_000)).toBe(false);
+    expect(store.isNotificationCandidate(item, new Date("2026-07-17T12:02:00Z"), 300_000)).toBe(false);
     expect(store.stats().pendingNotifications).toBe(0);
+  });
+
+  it("keeps a fresh launch eligible while its attention lookup is retried", () => {
+    const store = createStore();
+    const item = project();
+    const now = new Date("2026-07-17T12:01:00Z");
+    expect(store.registerLiveLaunch(item, now, 300_000)).toBe(true);
+    expect(store.registerLiveLaunch(item, now, 300_000)).toBe(false);
+    expect(store.isNotificationCandidate(item, now, 300_000)).toBe(true);
   });
 
   it("queues a fresh verified launch once for active matching users", () => {

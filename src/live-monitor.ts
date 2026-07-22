@@ -66,7 +66,8 @@ export class LiveLaunchMonitor {
             this.store.baselineLaunch(project, now);
             continue;
           }
-          if (!this.store.registerLiveLaunch(project, now, env.LIVE_LAUNCH_MAX_AGE_MS)) continue;
+          const isNew = this.store.registerLiveLaunch(project, now, env.LIVE_LAUNCH_MAX_AGE_MS);
+          if (!isNew && !this.store.isNotificationCandidate(project, now, env.LIVE_LAUNCH_MAX_AGE_MS)) continue;
           const check = await this.frontrun?.forLaunch(project);
           const attention = check?.status === "success" ? check.attention : undefined;
           const queued = shouldNotifyForAttention(attention)
