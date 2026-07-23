@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { formatVirtual, taxLogBelongsToTokenBuy } from "../src/tax-query.js";
+import { formatVirtual, resolveTaxTokenAddress, taxLogBelongsToTokenBuy } from "../src/tax-query.js";
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 describe("tax query helpers", () => {
+  it("uses the original launch token when queried with a graduated token address", () => {
+    const graduatedToken = "0x51cbdd4980d60a579a0793dfa28045fe751bdc9f";
+    const launchToken = "0xb807ceed5a4a3d78e314d8c0c9039b257fc16513";
+
+    expect(resolveTaxTokenAddress(graduatedToken, launchToken)).toBe(launchToken);
+    expect(resolveTaxTokenAddress(graduatedToken)).toBe(graduatedToken);
+  });
+
   it("requires the tax payer to fund the target pool and that pool to send the target token", () => {
     const token = "0xb807ceed5a4a3d78e314d8c0c9039b257fc16513";
     const pool = "0x27bb54784406114db07b30cc8cc944f07427b791";

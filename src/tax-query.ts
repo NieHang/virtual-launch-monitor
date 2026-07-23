@@ -50,12 +50,13 @@ export class TaxQueryService {
   constructor(private readonly store?: SqliteStore) {}
 
   async query(rawTokenAddress: string): Promise<TaxQueryResult> {
-    const tokenAddress = normalizeAddress(rawTokenAddress);
-    if (!tokenAddress) throw new Error("代币 CA 格式错误，请输入 0x 开头的 40 位十六进制地址。");
+    const requestedTokenAddress = normalizeAddress(rawTokenAddress);
+    if (!requestedTokenAddress) throw new Error("代币 CA 格式错误，请输入 0x 开头的 40 位十六进制地址。");
 
-    const project = await fetchLaunchByToken(tokenAddress);
+    const project = await fetchLaunchByToken(requestedTokenAddress);
     if (!project) throw new Error("未在 Virtuals 中找到这个代币 CA。");
 
+    const tokenAddress = resolveTaxTokenAddress(requestedTokenAddress, project.tokenAddress);
     const chain = chains[project.chainKey];
     const latestHex = await rpc<string>(chain.rpcUrl, "eth_blockNumber", []);
     const latestBlock = parseHexNumber(latestHex, "latest block");
@@ -112,6 +113,10 @@ export class TaxQueryService {
       transactionCount,
     };
   }
+}
+
+export function resolveTaxTokenAddress(requestedTokenAddress: string, projectTokenAddress?: string): string {
+  return normalizeAddress(projectTokenAddress ?? "") ?? requestedTokenAddress;
 }
 
 export function taxLogBelongsToTokenBuy(
