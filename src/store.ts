@@ -59,8 +59,8 @@ export class SqliteStore {
   }
 
   registerLiveLaunch(project: LiveProject, now: Date, maxAgeMs: number): boolean {
-    const existing = this.db.prepare("SELECT qualified_at, notification_eligible FROM observed_launches WHERE virtual_id = ?")
-      .get(project.virtualId) as { qualified_at: number | null; notification_eligible: number } | undefined;
+    const existing = this.db.prepare("SELECT first_seen_at, qualified_at, notification_eligible FROM observed_launches WHERE virtual_id = ?")
+      .get(project.virtualId) as { first_seen_at: number; qualified_at: number | null; notification_eligible: number } | undefined;
     if (!existing) {
       const eligible = isFresh(project, now, maxAgeMs);
       this.db.prepare(`
@@ -68,6 +68,15 @@ export class SqliteStore {
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(project.virtualId, project.chainKey, project.launchedAt.getTime(), now.getTime(), project.projectTwitter ? now.getTime() : null, eligible ? 1 : 0);
       return Boolean(project.projectTwitter) && eligible;
+    }
+    const wasObservedBeforeLaunch = existing.first_seen_at < project.launchedAt.getTime();
+    if (existing.notification_eligible === 0 && wasObservedBeforeLaunch && project.projectTwitter && isFresh(project, now, maxAgeMs)) {
+      this.db.prepare(`
+        UPDATE observed_launches
+        SET qualified_at = COALESCE(qualified_at, ?), notification_eligible = 1
+        WHERE virtual_id = ?
+      `).run(now.getTime(), project.virtualId);
+      return true;
     }
     if (existing.qualified_at === null && project.projectTwitter) {
       this.db.prepare("UPDATE observed_launches SET qualified_at = ? WHERE virtual_id = ?").run(now.getTime(), project.virtualId);

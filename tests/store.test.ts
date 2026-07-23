@@ -52,6 +52,21 @@ describe("SqliteStore", () => {
     expect(store.stats().pendingNotifications).toBe(0);
   });
 
+  it("reactivates a future launch that was loaded into the startup baseline", () => {
+    const store = createStore();
+    const item = project({
+      virtualId: "119656",
+      launchedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+    const baselineTime = new Date("2026-07-22T11:51:51Z");
+    store.baselineLaunch(item, baselineTime);
+
+    expect(store.isNotificationCandidate(item, baselineTime, 300_000)).toBe(false);
+    const launchTime = new Date("2026-07-23T12:00:10Z");
+    expect(store.registerLiveLaunch(item, launchTime, 300_000)).toBe(true);
+    expect(store.isNotificationCandidate(item, launchTime, 300_000)).toBe(true);
+  });
+
   it("keeps a fresh launch eligible while its attention lookup is retried", () => {
     const store = createStore();
     const item = project();
