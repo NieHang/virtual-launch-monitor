@@ -85,36 +85,22 @@ describe("FrontrunAttentionCoordinator", () => {
     store.close();
   });
 
-  it("retries failed and unresolved launch checks but reuses resolved results", async () => {
+  it("limits launch attention checks to two credit-consuming requests", async () => {
     vi.useFakeTimers();
     const store = new SqliteStore(":memory:");
     const getSmartFollowers = vi.fn()
       .mockRejectedValueOnce(new Error("temporary outage"))
-      .mockResolvedValueOnce({ totalCount: 0, smartFollowers: [], virtualOfficials: [], resolved: true })
-      .mockResolvedValueOnce({ totalCount: 0, smartFollowers: [], virtualOfficials: [], resolved: false })
-      .mockResolvedValueOnce({
-        totalCount: 1,
-        smartFollowers: [{ twitter: "umeirzz" }],
-        virtualOfficials: ["umeirzz"],
-        resolved: true,
-      });
+      .mockResolvedValue({ totalCount: 0, smartFollowers: [], virtualOfficials: [], resolved: false });
     const coordinator = new FrontrunAttentionCoordinator(store, { getSmartFollowers } as unknown as FrontrunService);
 
     await expect(coordinator.forLaunch(project())).resolves.toMatchObject({ status: "failed" });
     await expect(coordinator.forLaunch(project())).resolves.toMatchObject({ status: "failed" });
     expect(getSmartFollowers).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(15_001);
-    await expect(coordinator.forLaunch(project())).resolves.toMatchObject({ status: "success", attention: { totalCount: 0, resolved: true } });
-    await vi.advanceTimersByTimeAsync(15_001);
     await expect(coordinator.forLaunch(project())).resolves.toMatchObject({ status: "success", attention: { resolved: false } });
     await vi.advanceTimersByTimeAsync(15_001);
-    await expect(coordinator.forLaunch(project())).resolves.toMatchObject({
-      status: "success",
-      attention: { virtualOfficials: ["umeirzz"], resolved: true },
-    });
-    await vi.advanceTimersByTimeAsync(15_001);
     await coordinator.forLaunch(project());
-    expect(getSmartFollowers).toHaveBeenCalledTimes(4);
+    expect(getSmartFollowers).toHaveBeenCalledTimes(2);
     store.close();
     vi.useRealTimers();
   });

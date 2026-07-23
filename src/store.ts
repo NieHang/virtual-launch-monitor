@@ -130,7 +130,7 @@ export class SqliteStore {
     return { status: "checking" };
   }
 
-  claimFrontrunCheck(virtualId: string, retryAfterMs = 15_000, maxAttempts = 6): boolean {
+  claimFrontrunCheck(virtualId: string, retryAfterMs = 15_000, maxAttempts = 2): boolean {
     const now = Date.now();
     const result = this.db.prepare(`
       INSERT OR IGNORE INTO frontrun_checks (virtual_id, status, checked_at, attempts)
