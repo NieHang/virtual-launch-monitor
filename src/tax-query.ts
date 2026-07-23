@@ -8,6 +8,11 @@ const LAUNCH_TOPIC = "0xb9ee8aa6d909a3efd0bf1b0bc2bde7f998f7ad30178b0d45f9227f53
 const TAX_ADDRESS = "0x32487287c65f11d53bbca89c2472171eb09bf337";
 const LOG_BLOCK_RANGE = 10_000;
 const MAX_TAX_WINDOW_SECONDS = 98 * 60;
+const PAIR_START_LOOKBACK_BLOCKS = 2_000;
+const SELECTOR = {
+  startTime: "0x78e97925",
+  taxStartTime: "0x70e6e182",
+} as const;
 
 const chains: Record<ChainKey, { rpcUrl: string; virtualToken: string; launchContract: string }> = {
   base: {
@@ -32,7 +37,7 @@ interface RpcLog {
 interface RpcBlock { timestamp: string }
 interface RpcReceipt { to: string | null; logs: RpcLog[] }
 interface RpcResponse<T> { result?: T; error?: { code: number; message: string } }
-interface LaunchInfo { blockNumber: number; bondingPool: string }
+interface LaunchInfo { blockNumber: number; bondingPool: string; startedAt?: number }
 
 export interface TaxQueryResult {
   chainKey: ChainKey;
@@ -63,15 +68,16 @@ export class TaxQueryService {
     const cached = this.store?.getTaxScan(project.chainKey, tokenAddress);
     const launch = cached
       ? await getLaunchInfoAtBlock(chain.rpcUrl, chain.launchContract, tokenAddress, cached.launchBlock)
-      : await findLaunchInfo(
+      : await findLaunchInfoWithPairFallback(
         chain.rpcUrl,
         chain.launchContract,
         tokenAddress,
         Math.floor(project.launchedAt.getTime() / 1000),
         latestBlock,
+        project.preTokenPair,
       );
     const launchBlock = launch.blockNumber;
-    const taxWindowEndsAt = Math.floor(project.launchedAt.getTime() / 1000) + MAX_TAX_WINDOW_SECONDS;
+    const taxWindowEndsAt = (launch.startedAt ?? Math.floor(project.launchedAt.getTime() / 1000)) + MAX_TAX_WINDOW_SECONDS;
     const scanToBlock = taxWindowEndsAt >= Math.floor(Date.now() / 1000)
       ? latestBlock
       : await findBlockAtOrBefore(chain.rpcUrl, taxWindowEndsAt, latestBlock, launchBlock);
@@ -119,6 +125,12 @@ export function resolveTaxTokenAddress(requestedTokenAddress: string, projectTok
   return normalizeAddress(projectTokenAddress ?? "") ?? requestedTokenAddress;
 }
 
+export function selectPairStartTimestamp(taxStartTime: bigint | undefined, startTime: bigint | undefined): number | undefined {
+  const selected = taxStartTime && taxStartTime > 0n ? taxStartTime : startTime;
+  if (!selected || selected <= 0n || selected > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+  return Number(selected);
+}
+
 export function taxLogBelongsToTokenBuy(
   receipt: Pick<RpcReceipt, "logs">,
   taxLog: Pick<RpcLog, "address" | "topics">,
@@ -160,6 +172,33 @@ function topicAddress(topic?: string): string | undefined {
   return `0x${topic.slice(-40).toLowerCase()}`;
 }
 
+async function findLaunchInfoWithPairFallback(
+  rpcUrl: string,
+  launchContract: string,
+  tokenAddress: string,
+  launchedAt: number,
+  latestBlock: number,
+  bondingPool?: string,
+): Promise<LaunchInfo> {
+  try {
+    return await findLaunchInfo(rpcUrl, launchContract, tokenAddress, launchedAt, latestBlock);
+  } catch (launchError) {
+    const normalizedPool = bondingPool ? normalizeAddress(bondingPool) : undefined;
+    if (!normalizedPool) throw launchError;
+    try {
+      const startedAt = await readPairStartTimestamp(rpcUrl, normalizedPool);
+      const approximateBlock = await findBlockAtOrBefore(rpcUrl, startedAt, latestBlock);
+      return {
+        blockNumber: Math.max(0, approximateBlock - PAIR_START_LOOKBACK_BLOCKS),
+        bondingPool: normalizedPool,
+        startedAt,
+      };
+    } catch {
+      throw launchError;
+    }
+  }
+}
+
 async function findLaunchInfo(
   rpcUrl: string,
   launchContract: string,
@@ -199,6 +238,19 @@ async function findLaunchInfo(
   const launchLog = logs[0];
   if (!launchLog) throw new Error("Could not locate the token launch event");
   return launchInfoFromLog(launchLog);
+}
+
+async function readPairStartTimestamp(rpcUrl: string, bondingPool: string): Promise<number> {
+  const [taxStartRaw, startRaw] = await Promise.all([
+    optionalEthCall(rpcUrl, bondingPool, SELECTOR.taxStartTime),
+    optionalEthCall(rpcUrl, bondingPool, SELECTOR.startTime),
+  ]);
+  const startedAt = selectPairStartTimestamp(
+    parseOptionalHexBigInt(taxStartRaw),
+    parseOptionalHexBigInt(startRaw),
+  );
+  if (!startedAt) throw new Error("Bonding pair does not expose a valid start time");
+  return startedAt;
 }
 
 async function getLaunchInfoAtBlock(
@@ -266,6 +318,14 @@ async function rpc<T>(url: string, method: string, params: unknown[]): Promise<T
   return payload.result;
 }
 
+async function optionalEthCall(rpcUrl: string, to: string, data: string): Promise<string | undefined> {
+  try {
+    return await rpc<string>(rpcUrl, "eth_call", [{ to, data }, "latest"]);
+  } catch {
+    return undefined;
+  }
+}
+
 function parseHexNumber(value: string, label: string): number {
   const parsed = Number.parseInt(value, 16);
   if (!Number.isSafeInteger(parsed)) throw new Error(`Invalid ${label}`);
@@ -275,6 +335,10 @@ function parseHexNumber(value: string, label: string): number {
 function parseHexBigInt(value: string): bigint {
   if (!/^0x[0-9a-fA-F]+$/.test(value)) throw new Error("Invalid transfer amount");
   return BigInt(value);
+}
+
+function parseOptionalHexBigInt(value?: string): bigint | undefined {
+  return value && /^0x[0-9a-fA-F]+$/.test(value) ? BigInt(value) : undefined;
 }
 
 function toHex(value: number): string { return `0x${value.toString(16)}`; }

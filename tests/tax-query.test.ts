@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatVirtual, resolveTaxTokenAddress, taxLogBelongsToTokenBuy } from "../src/tax-query.js";
+import {
+  formatVirtual,
+  resolveTaxTokenAddress,
+  selectPairStartTimestamp,
+  taxLogBelongsToTokenBuy,
+} from "../src/tax-query.js";
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
@@ -10,6 +15,12 @@ describe("tax query helpers", () => {
 
     expect(resolveTaxTokenAddress(graduatedToken, launchToken)).toBe(launchToken);
     expect(resolveTaxTokenAddress(graduatedToken)).toBe(graduatedToken);
+  });
+
+  it("prefers the bonding pair tax start and falls back to its legacy start time", () => {
+    expect(selectPairStartTimestamp(1_234n, 1_000n)).toBe(1234);
+    expect(selectPairStartTimestamp(0n, 1_000n)).toBe(1000);
+    expect(selectPairStartTimestamp(undefined, undefined)).toBeUndefined();
   });
 
   it("requires the tax payer to fund the target pool and that pool to send the target token", () => {
