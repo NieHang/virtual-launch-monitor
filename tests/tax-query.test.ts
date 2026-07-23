@@ -20,6 +20,7 @@ describe("tax query helpers", () => {
   it("prefers the bonding pair tax start and falls back to its legacy start time", () => {
     expect(selectPairStartTimestamp(1_234n, 1_000n)).toBe(1234);
     expect(selectPairStartTimestamp(0n, 1_000n)).toBe(1000);
+    expect(selectPairStartTimestamp(BigInt(Number.MAX_SAFE_INTEGER) + 1n, 1_000n)).toBeUndefined();
     expect(selectPairStartTimestamp(undefined, undefined)).toBeUndefined();
   });
 

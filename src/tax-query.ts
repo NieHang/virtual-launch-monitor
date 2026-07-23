@@ -67,7 +67,13 @@ export class TaxQueryService {
     const latestBlock = parseHexNumber(latestHex, "latest block");
     const cached = this.store?.getTaxScan(project.chainKey, tokenAddress);
     const launch = cached
-      ? await getLaunchInfoAtBlock(chain.rpcUrl, chain.launchContract, tokenAddress, cached.launchBlock)
+      ? await getCachedLaunchInfo(
+        chain.rpcUrl,
+        chain.launchContract,
+        tokenAddress,
+        cached.launchBlock,
+        project.preTokenPair,
+      )
       : await findLaunchInfoWithPairFallback(
         chain.rpcUrl,
         chain.launchContract,
@@ -251,6 +257,25 @@ async function readPairStartTimestamp(rpcUrl: string, bondingPool: string): Prom
   );
   if (!startedAt) throw new Error("Bonding pair does not expose a valid start time");
   return startedAt;
+}
+
+async function getCachedLaunchInfo(
+  rpcUrl: string,
+  launchContract: string,
+  tokenAddress: string,
+  launchBlock: number,
+  bondingPool?: string,
+): Promise<LaunchInfo> {
+  const normalizedPool = bondingPool ? normalizeAddress(bondingPool) : undefined;
+  if (!normalizedPool) {
+    return getLaunchInfoAtBlock(rpcUrl, launchContract, tokenAddress, launchBlock);
+  }
+  const startedAt = await readPairStartTimestamp(rpcUrl, normalizedPool).catch(() => undefined);
+  return {
+    blockNumber: launchBlock,
+    bondingPool: normalizedPool,
+    ...(startedAt ? { startedAt } : {}),
+  };
 }
 
 async function getLaunchInfoAtBlock(
