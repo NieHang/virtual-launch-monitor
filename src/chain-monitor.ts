@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { env } from "./config.js";
 import { fetchLaunchById, fetchLaunchByToken } from "./live-monitor.js";
-import { shouldNotifyForAttention, type FrontrunAttentionCoordinator } from "./frontrun.js";
+import { shouldNotifyForAttention, shouldNotifyWeChat, type FrontrunAttentionCoordinator } from "./frontrun.js";
 import { logger } from "./logger.js";
 import type { SqliteStore } from "./store.js";
 import type { ChainKey } from "./types.js";
@@ -41,6 +41,7 @@ export class ChainLaunchMonitor {
   constructor(
     private readonly store: SqliteStore,
     private readonly frontrun?: FrontrunAttentionCoordinator,
+    private readonly wechatEnabled = false,
   ) {}
 
   async start(): Promise<void> {
@@ -144,6 +145,9 @@ export class ChainLaunchMonitor {
             const queued = isCandidate && shouldNotifyForAttention(attention)
               ? this.store.enqueueForActiveUsers(project, attention)
               : 0;
+            const wechatQueued = isCandidate && this.wechatEnabled && shouldNotifyWeChat(attention)
+              ? this.store.enqueueForWeChat(project, attention)
+              : 0;
             const attentionPending = isCandidate && Boolean(this.frontrun) && (
               !check
               || check.status === "checking"
@@ -158,6 +162,7 @@ export class ChainLaunchMonitor {
               smartFollowers: attention?.totalCount,
               frontrunStatus: check?.status ?? "disabled",
               queued,
+              wechatQueued,
               lookup: virtualId ? "virtual-id" : "token-address",
               resolutionMs: now.getTime() - project.launchedAt.getTime(),
             });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { FrontrunAttentionCoordinator, FrontrunService, shouldNotifyForAttention, twitterUsername } from "../src/frontrun.js";
+import { FrontrunAttentionCoordinator, FrontrunService, shouldNotifyForAttention, shouldNotifyWeChat, twitterUsername } from "../src/frontrun.js";
 import { SqliteStore } from "../src/store.js";
 import type { LiveProject } from "../src/types.js";
 
@@ -40,6 +40,12 @@ describe("FrontrunService", () => {
     expect(shouldNotifyForAttention({ totalCount: 0, smartFollowers: [], virtualOfficials: [], resolved: true })).toBe(false);
     expect(shouldNotifyForAttention({ totalCount: 2, smartFollowers: [], virtualOfficials: [], resolved: false })).toBe(false);
     expect(shouldNotifyForAttention({ totalCount: 2, smartFollowers: [], virtualOfficials: [], resolved: true })).toBe(true);
+  });
+
+  it("only qualifies resolved Virtual official matches for WeChat", () => {
+    expect(shouldNotifyWeChat({ totalCount: 2, smartFollowers: [], virtualOfficials: [], resolved: true })).toBe(false);
+    expect(shouldNotifyWeChat({ totalCount: 2, smartFollowers: [], virtualOfficials: ["hananyss"], resolved: false })).toBe(false);
+    expect(shouldNotifyWeChat({ totalCount: 2, smartFollowers: [], virtualOfficials: ["hananyss"], resolved: true })).toBe(true);
   });
 
   it("extracts usernames from supported X formats", () => {

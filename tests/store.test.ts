@@ -89,6 +89,27 @@ describe("SqliteStore", () => {
     expect(store.claimOutbox(10).map((entry) => entry.chatId)).toEqual(["active"]);
   });
 
+  it("queues an official-followed project once for WeChat without Telegram users", () => {
+    const store = createStore();
+    const item = project();
+    const attention = {
+      totalCount: 2,
+      smartFollowers: [{ twitter: "hananyss" }],
+      virtualOfficials: ["hananyss"],
+      resolved: true,
+    };
+    expect(store.enqueueForWeChat(item, attention)).toBe(1);
+    expect(store.enqueueForWeChat(item, attention)).toBe(0);
+    expect(store.claimWeChatOutbox(10)).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          virtualId: item.virtualId,
+          frontrunAttention: expect.objectContaining({ virtualOfficials: ["hananyss"] }),
+        }),
+      }),
+    ]);
+  });
+
   it("disables existing users and discards queued alerts outside the whitelist", () => {
     const directory = mkdtempSync(join(tmpdir(), "virtual-launch-monitor-"));
     tempDirectories.push(directory);

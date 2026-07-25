@@ -133,6 +133,10 @@ export function shouldNotifyForAttention(attention?: FrontrunAttention): attenti
   return Boolean(attention?.resolved && attention.totalCount > 0);
 }
 
+export function shouldNotifyWeChat(attention?: FrontrunAttention): attention is FrontrunAttention {
+  return Boolean(attention?.resolved && attention.virtualOfficials.length > 0);
+}
+
 export function twitterUsername(value: string): string | undefined {
   const trimmed = value.trim();
   const direct = trimmed.match(/^@?([A-Za-z0-9_]{1,15})$/)?.[1];

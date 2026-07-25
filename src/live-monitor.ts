@@ -1,5 +1,5 @@
 import { env } from "./config.js";
-import { shouldNotifyForAttention, type FrontrunAttentionCoordinator } from "./frontrun.js";
+import { shouldNotifyForAttention, shouldNotifyWeChat, type FrontrunAttentionCoordinator } from "./frontrun.js";
 import { logger } from "./logger.js";
 import type { SqliteStore } from "./store.js";
 import type { ChainKey, LiveProject } from "./types.js";
@@ -36,6 +36,7 @@ export class LiveLaunchMonitor {
   constructor(
     private readonly store: SqliteStore,
     private readonly frontrun?: FrontrunAttentionCoordinator,
+    private readonly wechatEnabled = false,
   ) {}
 
   async start(): Promise<void> {
@@ -73,6 +74,9 @@ export class LiveLaunchMonitor {
           const queued = shouldNotifyForAttention(attention)
             ? this.store.enqueueForActiveUsers(project, attention)
             : 0;
+          const wechatQueued = this.wechatEnabled && shouldNotifyWeChat(attention)
+            ? this.store.enqueueForWeChat(project, attention)
+            : 0;
           logger.info("Qualified new launch discovered", {
             virtualId: project.virtualId,
             token: project.tokenAddress,
@@ -81,6 +85,7 @@ export class LiveLaunchMonitor {
             smartFollowers: attention?.totalCount,
             frontrunStatus: check?.status ?? "disabled",
             queued,
+            wechatQueued,
           });
         }
       }

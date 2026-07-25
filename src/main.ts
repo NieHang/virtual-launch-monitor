@@ -8,10 +8,12 @@ import { RealCostQueryService } from "./real-cost-query.js";
 import { SqliteStore } from "./store.js";
 import { TaxQueryService } from "./tax-query.js";
 import { NotificationWorker, TelegramApi, TelegramBot } from "./telegram.js";
+import { WeChatApi, WeChatNotificationWorker } from "./wechat.js";
 
 const telegramAllowedChatIds = new Set(env.TELEGRAM_ALLOWED_CHAT_IDS);
 const store = new SqliteStore(env.SQLITE_PATH, telegramAllowedChatIds);
 const telegramApi = env.TELEGRAM_BOT_TOKEN ? new TelegramApi(env.TELEGRAM_BOT_TOKEN) : undefined;
+const wechatApi = env.WECOM_WEBHOOK_URL ? new WeChatApi(env.WECOM_WEBHOOK_URL) : undefined;
 const taxQueryService = new TaxQueryService(store);
 const realCostQueryService = new RealCostQueryService();
 const frontrunService = env.FrontRunKey ? new FrontrunService(env.FrontRunKey) : undefined;
@@ -24,11 +26,15 @@ const notificationWorker = new NotificationWorker(
   telegramApi,
   (projectTwitter) => frontrunAttention.isBlocked(projectTwitter),
 );
-const liveMonitor = new LiveLaunchMonitor(store, frontrunAttention);
-const chainMonitor = new ChainLaunchMonitor(store, frontrunAttention);
+const wechatNotificationWorker = wechatApi
+  ? new WeChatNotificationWorker(store, wechatApi, (projectTwitter) => frontrunAttention.isBlocked(projectTwitter))
+  : undefined;
+const liveMonitor = new LiveLaunchMonitor(store, frontrunAttention, Boolean(wechatApi));
+const chainMonitor = new ChainLaunchMonitor(store, frontrunAttention, Boolean(wechatApi));
 const healthServer = startHealthServer(env.PORT, store);
 
 notificationWorker.start();
+wechatNotificationWorker?.start();
 // The first latest-page fetch is a baseline only. It can never enqueue alerts.
 await liveMonitor.start();
 await chainMonitor.start();
@@ -38,6 +44,7 @@ logger.info("Virtual Launch Monitor ready", {
   database: env.SQLITE_PATH,
   port: env.PORT,
   telegram: Boolean(telegramApi),
+  wechat: Boolean(wechatApi),
   telegramWhitelistEnabled: env.TELEGRAM_ALLOWED_CHAT_IDS.length > 0,
   telegramAllowedUsers: env.TELEGRAM_ALLOWED_CHAT_IDS.length,
   frontrun: Boolean(frontrunService),
@@ -48,6 +55,7 @@ async function shutdown(signal: string): Promise<void> {
   logger.info("Shutting down", { signal });
   telegramBot?.stop();
   notificationWorker.stop();
+  wechatNotificationWorker?.stop();
   liveMonitor.stop();
   chainMonitor.stop();
   healthServer.close();

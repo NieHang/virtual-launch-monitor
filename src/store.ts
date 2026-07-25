@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AlertPayload, ChainKey, FrontrunAttention, FrontrunCheck, LiveProject, OutboxItem, StoreStats, TelegramUser } from "./types.js";
+import type { AlertPayload, ChainKey, FrontrunAttention, FrontrunCheck, LiveProject, OutboxItem, StoreStats, TelegramUser, WeChatOutboxItem } from "./types.js";
 import { toBeijingIsoString } from "./time.js";
 
 export class SqliteStore {
@@ -106,18 +106,7 @@ export class SqliteStore {
       INSERT OR IGNORE INTO notification_outbox (chat_id, virtual_id, payload)
       VALUES (?, ?, ?)
     `);
-    const payload: AlertPayload = {
-      virtualId: project.virtualId,
-      chainKey: project.chainKey,
-      tokenAddress: project.tokenAddress,
-      ...(project.tokenName ? { tokenName: project.tokenName } : {}),
-      ...(project.tokenSymbol ? { tokenSymbol: project.tokenSymbol } : {}),
-      launchedAt: toBeijingIsoString(project.launchedAt),
-      projectTwitter: project.projectTwitter,
-      ...(project.projectTelegram ? { projectTelegram: project.projectTelegram } : {}),
-      explorer: project.chainKey === "base" ? "https://basescan.org" : "https://robinhoodchain.blockscout.com",
-      ...(frontrunAttention ? { frontrunAttention } : {}),
-    };
+    const payload = alertPayload(project, frontrunAttention);
     let count = 0;
     for (const row of users) {
       const user = rowToUser(row);
@@ -126,6 +115,15 @@ export class SqliteStore {
       count += Number(result.changes);
     }
     return count;
+  }
+
+  enqueueForWeChat(project: LiveProject, frontrunAttention: FrontrunAttention): number {
+    if (!project.projectTwitter || frontrunAttention.virtualOfficials.length === 0) return 0;
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO wechat_notification_outbox (virtual_id, payload)
+      VALUES (?, ?)
+    `).run(project.virtualId, JSON.stringify(alertPayload(project, frontrunAttention)));
+    return Number(result.changes);
   }
 
   getFrontrunCheck(virtualId: string): FrontrunCheck | undefined {
@@ -201,15 +199,56 @@ export class SqliteStore {
       .run(error.slice(0, 2000), Date.now() + delayMs, id);
   }
 
+  claimWeChatOutbox(limit: number): WeChatOutboxItem[] {
+    const rows = this.db.prepare(`
+      SELECT id, payload, attempts FROM wechat_notification_outbox
+      WHERE status IN ('pending', 'failed') AND next_attempt_at <= ?
+      ORDER BY id LIMIT ?
+    `).all(Date.now(), limit) as unknown as WeChatOutboxRow[];
+    const mark = this.db.prepare("UPDATE wechat_notification_outbox SET status = 'sending', attempts = attempts + 1 WHERE id = ?");
+    for (const row of rows) mark.run(row.id);
+    return rows.map((row) => ({
+      id: row.id,
+      payload: JSON.parse(row.payload) as AlertPayload,
+      attempts: row.attempts + 1,
+    }));
+  }
+
+  markWeChatOutboxSent(id: number): void {
+    this.db.prepare("UPDATE wechat_notification_outbox SET status = 'sent', sent_at = ? WHERE id = ?")
+      .run(Date.now(), id);
+  }
+
+  markWeChatOutboxFailed(id: number, error: string): void {
+    const row = this.db.prepare("SELECT attempts FROM wechat_notification_outbox WHERE id = ?")
+      .get(id) as { attempts: number } | undefined;
+    const delayMs = Math.min(60_000, 2 ** Math.min(row?.attempts ?? 1, 6) * 1000);
+    this.db.prepare("UPDATE wechat_notification_outbox SET status = 'failed', last_error = ?, next_attempt_at = ? WHERE id = ?")
+      .run(error.slice(0, 2000), Date.now() + delayMs, id);
+  }
+
   stats(): StoreStats {
     const row = this.db.prepare(`
       SELECT
         (SELECT count(*) FROM telegram_users) AS users,
         (SELECT count(*) FROM telegram_users WHERE enabled = 1) AS active_users,
         (SELECT count(*) FROM observed_launches) AS seen_launches,
-        (SELECT count(*) FROM notification_outbox WHERE status IN ('pending', 'failed', 'sending')) AS pending_notifications
-    `).get() as { users: number; active_users: number; seen_launches: number; pending_notifications: number };
-    return { users: row.users, activeUsers: row.active_users, seenLaunches: row.seen_launches, pendingNotifications: row.pending_notifications };
+        (SELECT count(*) FROM notification_outbox WHERE status IN ('pending', 'failed', 'sending')) AS pending_notifications,
+        (SELECT count(*) FROM wechat_notification_outbox WHERE status IN ('pending', 'failed', 'sending')) AS pending_wechat_notifications
+    `).get() as {
+      users: number;
+      active_users: number;
+      seen_launches: number;
+      pending_notifications: number;
+      pending_wechat_notifications: number;
+    };
+    return {
+      users: row.users,
+      activeUsers: row.active_users,
+      seenLaunches: row.seen_launches,
+      pendingNotifications: row.pending_notifications,
+      pendingWeChatNotifications: row.pending_wechat_notifications,
+    };
   }
 
   getTaxScan(chainKey: ChainKey, tokenAddress: string): TaxScanState | undefined {
@@ -301,6 +340,17 @@ export class SqliteStore {
         sent_at INTEGER,
         UNIQUE(chat_id, virtual_id)
       );
+      CREATE TABLE IF NOT EXISTS wechat_notification_outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        virtual_id TEXT NOT NULL UNIQUE,
+        payload TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        sent_at INTEGER
+      );
       CREATE TABLE IF NOT EXISTS tax_scans (
         chain_key TEXT NOT NULL,
         token_address TEXT NOT NULL,
@@ -321,6 +371,7 @@ export class SqliteStore {
         attempts INTEGER NOT NULL DEFAULT 1
       );
       UPDATE notification_outbox SET status = 'failed', next_attempt_at = 0 WHERE status = 'sending';
+      UPDATE wechat_notification_outbox SET status = 'failed', next_attempt_at = 0 WHERE status = 'sending';
     `);
     const taxScanColumns = this.db.prepare("PRAGMA table_info(tax_scans)").all() as unknown as Array<{ name: string }>;
     if (!taxScanColumns.some((column) => column.name === "matcher_version")) {
@@ -339,6 +390,7 @@ export class SqliteStore {
 
 interface UserRow { chat_id: string; username: string | null; enabled: number; chains: string }
 interface OutboxRow { id: number; chat_id: string; payload: string; attempts: number }
+interface WeChatOutboxRow { id: number; payload: string; attempts: number }
 interface TaxScanRow { launch_block: number; scanned_to_block: number; tax_wei: string; transaction_count: number }
 interface FrontrunCheckRow { status: string; payload: string | null; last_error: string | null }
 export interface TaxScanState { launchBlock: number; scannedToBlock: number; taxWei: bigint; transactionCount: number }
@@ -355,4 +407,20 @@ function rowToUser(row: UserRow): TelegramUser {
 function isFresh(project: LiveProject, now: Date, maxAgeMs: number): boolean {
   const ageMs = now.getTime() - project.launchedAt.getTime();
   return ageMs >= -60_000 && ageMs <= maxAgeMs;
+}
+
+function alertPayload(project: LiveProject, frontrunAttention?: FrontrunAttention): AlertPayload {
+  if (!project.projectTwitter) throw new Error("Cannot create an alert without a project X account");
+  return {
+    virtualId: project.virtualId,
+    chainKey: project.chainKey,
+    tokenAddress: project.tokenAddress,
+    ...(project.tokenName ? { tokenName: project.tokenName } : {}),
+    ...(project.tokenSymbol ? { tokenSymbol: project.tokenSymbol } : {}),
+    launchedAt: toBeijingIsoString(project.launchedAt),
+    projectTwitter: project.projectTwitter,
+    ...(project.projectTelegram ? { projectTelegram: project.projectTelegram } : {}),
+    explorer: project.chainKey === "base" ? "https://basescan.org" : "https://robinhoodchain.blockscout.com",
+    ...(frontrunAttention ? { frontrunAttention } : {}),
+  };
 }

@@ -59,9 +59,16 @@ export interface OutboxItem {
   attempts: number;
 }
 
+export interface WeChatOutboxItem {
+  id: number;
+  payload: AlertPayload;
+  attempts: number;
+}
+
 export interface StoreStats {
   users: number;
   activeUsers: number;
   seenLaunches: number;
   pendingNotifications: number;
+  pendingWeChatNotifications: number;
 }

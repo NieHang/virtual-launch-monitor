@@ -1,6 +1,6 @@
 # Virtual Launch Monitor
 
-一个单进程 Telegram Bot，用于监控 Virtuals 在 Base 和 Robinhood Chain 上的新代币发射。
+一个单进程 Telegram Bot，并可选接入企业微信群机器人，用于监控 Virtuals 在 Base 和 Robinhood Chain 上的新代币发射。
 
 ## 核心功能
 
@@ -13,6 +13,7 @@
 - 即使旧项目在服务启动后才被官方列表索引，也只登记、不补发。
 - 未见过但已经超过 5 分钟的项目只登记、不通知。
 - Telegram 用户可以开启、暂停通知，并选择 Base/Robinhood 网络。
+- 企业微信通道只推送 Top 20 命中 V 官方人员关注的项目，不推送普通 Smart Followers 项目。
 - “查询 Upcoming”按钮按需读取 Launch Radar，只返回项目概要和 Virtuals 项目详情页链接。
 - SQLite 保存用户状态、已见项目和通知去重记录，无需 PostgreSQL。
 
@@ -23,7 +24,7 @@
 ```powershell
 pnpm install
 Copy-Item .env.example .env
-# 在 .env 中填写 TELEGRAM_BOT_TOKEN 和 FrontRunKey
+# 在 .env 中填写 TELEGRAM_BOT_TOKEN、FrontRunKey；需要微信推送时再填写 WECOM_WEBHOOK_URL
 pnpm test
 pnpm build
 pnpm start
@@ -66,6 +67,16 @@ http://127.0.0.1:3000/health
 
 当前税率按合约 Router 的实际逻辑计算：以最新区块时间减去 Pair 的 `taxStartTime`（旧 Pair 回退到 `startTime`），再结合 `BondingConfig.getAntiSniperDuration(type)` 线性递减。不同类型可以是 60 秒、600 秒或 98 分钟，不能统一按官网倒计时或固定 98 分钟推断。
 
+## 企业微信
+
+在企业微信群中添加“群机器人”，复制 Webhook 地址并写入 `.env`：
+
+```dotenv
+WECOM_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的机器人key
+```
+
+重启服务后生效。该通道独立于 Telegram 用户状态，只在 Frontrun 返回结果已解析完成且 `virtualOfficials` 非空时入队；同一项目只发送一次，失败会自动重试。未配置 Webhook 时不会积压微信历史消息。
+
 ## Telegram 白名单
 
 三名用户继续共用同一个 Bot Token。将允许使用 Bot 的 Telegram Chat ID 写入 `.env`：
@@ -83,6 +94,7 @@ TELEGRAM_ALLOWED_CHAT_IDS=123456789,987654321,1122334455
 - Telegram chat ID、开启/暂停状态和网络选择；
 - 已经见过的 Virtuals 项目；
 - 待发送、失败重试和已发送通知。
+- 企业微信待发送、失败重试和已发送通知。
 
 ## 低延迟 RPC
 

@@ -13,6 +13,10 @@ const envSchema = z.object({
     }
     return [...new Set(chatIds)];
   }),
+  WECOM_WEBHOOK_URL: z.preprocess(
+    (value) => value === "" ? undefined : value,
+    z.string().url().optional(),
+  ),
   FrontRunKey: z.preprocess((value) => value === "" ? undefined : value, z.string().optional()),
   XBlockList: z.string().default("").transform((value) => (
     [...new Set(value.split(/[\s,;]+/).map((entry) => entry.trim()).filter(Boolean))]
