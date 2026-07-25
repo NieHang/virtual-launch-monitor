@@ -75,7 +75,7 @@ http://127.0.0.1:3000/health
 WECOM_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的机器人key
 ```
 
-重启服务后生效。该通道独立于 Telegram 用户状态，只在 Frontrun 返回结果已解析完成且 `virtualOfficials` 非空时入队；同一项目只发送一次，失败会自动重试。未配置 Webhook 时不会积压微信历史消息。
+重启服务后生效。该通道独立于 Telegram 用户状态，只在 Frontrun 返回结果已解析完成且 `virtualOfficials` 非空时入队；同一项目只发送一次，失败会自动重试。通知使用纯文本格式，兼容企业微信“微信插件”在普通微信客户端中直接显示。未配置 Webhook 时不会积压微信历史消息。
 
 ## Telegram 白名单
 

@@ -18,8 +18,8 @@ export class WeChatApi {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        msgtype: "markdown",
-        markdown: { content: formatWeChatAlert(payload) },
+        msgtype: "text",
+        text: { content: formatWeChatAlert(payload) },
       }),
       signal: AbortSignal.timeout(10_000),
     });
@@ -81,14 +81,14 @@ export function formatWeChatAlert(payload: AlertPayload): string {
     ? `${payload.tokenName ?? payload.tokenSymbol} ($${payload.tokenSymbol})`
     : payload.tokenName ?? payload.tokenAddress;
   return [
-    "## 🚨 V 官方人员关注项目",
-    `> 官方关注：<font color=\"warning\">${officials.map((handle) => `@${handle}`).join("、")}</font>`,
-    `> 网络：${payload.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
-    `> 项目：${title}`,
-    `> 发射时间：${payload.launchedAt}`,
-    `> 项目 X：[${payload.projectTwitter}](${payload.projectTwitter})`,
-    `> Token：\`${payload.tokenAddress}\``,
-    `[Virtuals 项目详情](https://app.virtuals.io/virtuals/${payload.virtualId})`,
-    `[区块浏览器](${payload.explorer}/address/${payload.tokenAddress})`,
+    "🚨 V 官方人员关注项目",
+    `官方关注：${officials.map((handle) => `@${handle}`).join("、")}`,
+    `网络：${payload.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
+    `项目：${title}`,
+    `发射时间：${payload.launchedAt}`,
+    `项目 X：${payload.projectTwitter}`,
+    `Token：${payload.tokenAddress}`,
+    `Virtuals 项目详情：https://app.virtuals.io/virtuals/${payload.virtualId}`,
+    `区块浏览器：${payload.explorer}/address/${payload.tokenAddress}`,
   ].join("\n");
 }

@@ -28,7 +28,7 @@ describe("WeChat notifications", () => {
     expect(text).toContain(payload.tokenAddress);
   });
 
-  it("posts WeCom markdown to the configured webhook", async () => {
+  it("posts WeCom text that the WeChat plugin can display", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => (
       Response.json({ errcode: 0, errmsg: "ok" })
     ));
@@ -41,10 +41,11 @@ describe("WeChat notifications", () => {
     });
     const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body)) as {
       msgtype: string;
-      markdown: { content: string };
+      text: { content: string };
     };
-    expect(body.msgtype).toBe("markdown");
-    expect(body.markdown.content).toContain("@hananyss");
+    expect(body.msgtype).toBe("text");
+    expect(body.text.content).toContain("@hananyss");
+    expect(body.text.content).not.toContain("<font");
   });
 
   it("rejects an application-level WeCom error", async () => {
