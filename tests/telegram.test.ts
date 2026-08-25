@@ -25,6 +25,14 @@ describe("Frontrun alert formatting", () => {
     explorer: "https://basescan.org",
   };
 
+  it("formats Solana alerts with a Solscan token link", () => {
+    const mint = "HyTQyxUVyB8kqFpgGh2Ej77JJrNNSUrcYc9kAA2zCTq8";
+    const text = formatAlert({ ...base, chainKey: "solana", tokenAddress: mint, explorer: "https://solscan.io" });
+    expect(text).toContain("网络：Solana");
+    expect(text).toContain(`https://solscan.io/token/${mint}`);
+    expect(text).not.toContain(`https://solscan.io/address/${mint}`);
+  });
+
   it("formats an important Smart Followers alert with handles", () => {
     const text = formatAlert({ ...base, frontrunAttention: {
       totalCount: 2,

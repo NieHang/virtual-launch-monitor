@@ -1,6 +1,7 @@
 import { env } from "./config.js";
+import { isEvmChain, normalizeSolanaAddress } from "./chains.js";
 import { fetchLaunchByToken } from "./live-monitor.js";
-import type { ChainKey, LiveProject } from "./types.js";
+import type { ChainKey, EvmChainKey, LiveProject } from "./types.js";
 
 const SELECTOR = {
   totalSupply: "0x18160ddd",
@@ -18,7 +19,7 @@ const SELECTOR = {
   buyTax: "0x4f7041a5",
 } as const;
 
-const chains: Record<ChainKey, { rpcUrl: string; virtualToken: string; bondingV5: string }> = {
+const chains: Record<EvmChainKey, { rpcUrl: string; virtualToken: string; bondingV5: string }> = {
   base: {
     rpcUrl: env.BASE_RPC_URL,
     virtualToken: "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b",
@@ -59,13 +60,14 @@ export interface RealCostResult {
 
 export class RealCostQueryService {
   async query(rawTokenAddress: string): Promise<RealCostResult> {
-    const tokenAddress = normalizeAddress(rawTokenAddress);
+    const tokenAddress = normalizeAddress(rawTokenAddress) ?? normalizeSolanaAddress(rawTokenAddress);
     if (!tokenAddress) throw new Error("代币 CA 格式错误，请输入 0x 开头的 40 位十六进制地址。");
 
     const project = await fetchLaunchByToken(tokenAddress);
     if (!project) throw new Error("未在 Virtuals 中找到这个代币 CA。");
     if (!project.preTokenPair) throw new Error("Virtuals API 未返回该代币的 Bonding Pair，暂时无法读取链上实时成本。");
 
+    if (!isEvmChain(project.chainKey)) throw new Error("/efdv 暂不支持 Solana 代币。");
     const chain = chains[project.chainKey];
     const [latestBlock, totalSupplyRaw, startTimeRaw, taxStartTimeRaw, antiSniperTypeRaw, configRaw, routerRaw, pool] = await Promise.all([
       rpc<RpcBlock>(chain.rpcUrl, "eth_getBlockByNumber", ["latest", false]),

@@ -1,10 +1,10 @@
 # Virtual Launch Monitor
 
-一个单进程 Telegram Bot，并可选接入企业微信群机器人，用于监控 Virtuals 在 Base 和 Robinhood Chain 上的新代币发射。
+一个单进程 Telegram Bot，并可选接入企业微信群机器人，用于监控 Virtuals 在 Base、Robinhood Chain 和 Solana 上的新代币发射。
 
 ## 核心功能
 
-- 每秒监听 Base 和 Robinhood Chain 的 Virtuals 发射合约事件。
+- 每秒监听 Base 和 Robinhood Chain 的 Virtuals 发射合约事件；Solana 发射通过官方 API 轮询捕获。
 - 链上捕获 Token 后，优先从发射交易解析项目 ID 并直读详情；无法解析时按 Token 地址反查，官方最新列表仅作为最终兜底。
 - 只对“刚发射且项目自身 `socials.VERIFIED_LINKS.TWITTER` 存在”的项目发送自动通知。
 - 每个新发射项目查询 Frontrun Top 20；命中结果会缓存，首次查询未命中时会在 15 秒后再查一次，每个项目总共最多查询 2 次。Smart Followers 最终仍为 0 时不通知，大于 0 时发送重要提醒，Top 20 命中 Virtual 官方人员时发送最高提醒。
@@ -12,7 +12,7 @@
 - 启动基线中尚未到发射时间的计划项目会保留待发射状态，真正发射时仍会正常通知。
 - 即使旧项目在服务启动后才被官方列表索引，也只登记、不补发。
 - 未见过但已经超过 5 分钟的项目只登记、不通知。
-- Telegram 用户可以开启、暂停通知，并选择 Base/Robinhood 网络。
+- Telegram 用户可以开启、暂停通知，并选择 Base/Robinhood/Solana 网络。
 - 企业微信通道只推送 Top 20 命中 V 官方人员关注的项目，不推送普通 Smart Followers 项目。
 - “查询 Upcoming”按钮按需读取 Launch Radar，只返回项目概要和 Virtuals 项目详情页链接。
 - SQLite 保存用户状态、已见项目和通知去重记录，无需 PostgreSQL。
@@ -48,7 +48,7 @@ http://127.0.0.1:3000/health
 - “开启通知”：从此刻开始接收新的合格发射通知，不补发历史。
 - `/pause`：暂停自动通知。
 - `/resume`：恢复自动通知。
-- `/chains base robinhood`：选择网络，也可使用 `/chains all`。
+- `/chains base robinhood solana`：选择网络，也可使用 `/chains all`。
 - “查询 Upcoming”：实时查询一次 Launch Radar。
 - `/status`：查看当前状态。
 - `/test`：测试 Telegram 收发。
@@ -98,6 +98,6 @@ TELEGRAM_ALLOWED_CHAT_IDS=123456789,987654321,1122334455
 
 ## 低延迟 RPC
 
-默认配置使用 Base 与 Robinhood Chain 的公共 RPC。公共端点适合本地测试，但存在限流和稳定性风险；正式长期运行时，请在 `.env` 中把 `BASE_RPC_URL` 和 `ROBINHOOD_RPC_URL` 替换为 Alchemy、QuickNode 等服务商的专用端点。`CHAIN_POLL_MS=1000` 通常能在新区块出现后约 1 秒内捕获发射事件。
+默认配置使用 Base 与 Robinhood Chain 的公共 RPC。公共端点适合本地测试，但存在限流和稳定性风险；正式长期运行时，请在 `.env` 中把 `BASE_RPC_URL` 和 `ROBINHOOD_RPC_URL` 替换为 Alchemy、QuickNode 等服务商的专用端点。`CHAIN_POLL_MS=1000` 通常能在新区块出现后约 1 秒内捕获 EVM 发射事件；Solana 使用 `OFFICIAL_API_POLL_MS` 配置的官方 API 轮询周期。
 
 备份或迁移时复制该文件即可。

@@ -1,4 +1,5 @@
 import { env } from "./config.js";
+import { normalizeChain } from "./chains.js";
 import { shouldNotifyForAttention, shouldNotifyWeChat, type FrontrunAttentionCoordinator } from "./frontrun.js";
 import { logger } from "./logger.js";
 import type { SqliteStore } from "./store.js";
@@ -177,10 +178,4 @@ export function toLiveProject(item: VirtualsItem): LiveProject[] {
     ...(projectTwitter ? { projectTwitter } : {}),
     ...(projectTelegram ? { projectTelegram } : {}),
   }];
-}
-
-function normalizeChain(value?: string): ChainKey | undefined {
-  if (value?.toUpperCase() === "BASE") return "base";
-  if (value?.toUpperCase() === "ROBINHOOD") return "robinhood";
-  return undefined;
 }

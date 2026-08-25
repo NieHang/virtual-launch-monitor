@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { ALL_CHAINS, chainDisplayName, explorerRoot, tokenExplorerUrl } from "./chains.js";
 import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import { fetchUpcomingProjects, type UpcomingProject } from "./launch-radar.js";
 import { fetchLaunchByToken } from "./live-monitor.js";
@@ -141,7 +142,7 @@ export class TelegramBot {
           launchedAt: toBeijingIsoString(project.launchedAt),
           projectTwitter: project.projectTwitter,
           ...(project.projectTelegram ? { projectTelegram: project.projectTelegram } : {}),
-          explorer: project.chainKey === "base" ? "https://basescan.org" : "https://robinhoodchain.blockscout.com",
+          explorer: explorerRoot(project.chainKey),
           ...(attention ? { frontrunAttention: attention } : {}),
         }));
       } else if (command === "/tax") {
@@ -310,7 +311,7 @@ export function formatAlert(payload: AlertPayload): string {
       : "🔥 Virtuals 认证项目新币发射";
   return [
     alertTitle,
-    `网络：${payload.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
+    `网络：${chainDisplayName(payload.chainKey)}`,
     `项目：${title}`,
     `发射时间：${payload.launchedAt}`,
     `项目认证 X：${payload.projectTwitter}`,
@@ -318,7 +319,7 @@ export function formatAlert(payload: AlertPayload): string {
     ...(payload.projectTelegram ? [`项目认证 Telegram：${payload.projectTelegram}`] : []),
     `Token：${payload.tokenAddress}`,
     `项目详情：https://app.virtuals.io/virtuals/${payload.virtualId}`,
-    `${payload.explorer}/address/${payload.tokenAddress}`,
+    tokenExplorerUrl(payload.chainKey, payload.tokenAddress),
   ].join("\n");
 }
 
@@ -336,9 +337,9 @@ function unauthorizedText(chatId: string): string {
 
 function normalizeChains(args: string[]): ChainKey[] {
   const values = args.map((value) => value.toLowerCase());
-  if (values.includes("all")) return ["base", "robinhood"];
-  const chains = [...new Set(values.filter((value): value is ChainKey => value === "base" || value === "robinhood"))];
-  if (!chains.length) throw new Error("用法：/chains base robinhood（或 /chains all）");
+  if (values.includes("all")) return [...ALL_CHAINS];
+  const chains = [...new Set(values.filter((value): value is ChainKey => ALL_CHAINS.includes(value as ChainKey)))];
+  if (!chains.length) throw new Error("用法：/chains base robinhood solana（或 /chains all）");
   return chains;
 }
 
@@ -361,7 +362,7 @@ function helpText(user: TelegramUser): string {
     "",
     statusText(user),
     "",
-    "/chains base robinhood - 设置订阅网络",
+    "/chains base robinhood solana - 设置订阅网络",
     "/status - 查看设置",
     "/search <代币CA> - 查询 Virtuals 项目信息",
     "/tax <代币CA> - 查询累计反狙击税",
@@ -379,7 +380,7 @@ export function formatTaxResult(result: TaxQueryResult): string {
   return [
     "🧾 Virtuals 查税结果",
     `项目：${title}`,
-    `网络：${result.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
+    `网络：${chainDisplayName(result.chainKey)}`,
     `代币 CA：${result.tokenAddress}`,
     `累计反狙击税：${formatVirtual(result.taxWei)} VIRTUAL`,
     `税收交易数：${result.transactionCount}`,
@@ -400,7 +401,7 @@ export function formatRealCostResult(result: RealCostResult): string {
   const lines = [
     "📐 Virtuals 链上真实成本",
     `项目：${title}`,
-    `网络：${result.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
+    `网络：${chainDisplayName(result.chainKey)}`,
     `代币 CA：${result.tokenAddress}`,
     `当前 FDV：${fdv} VIRTUAL${usdFdv ? `（约 ${usdFdv}）` : ""}`,
   ];
@@ -452,7 +453,7 @@ export function formatUpcomingProject(project: UpcomingProject, attention?: Fron
         ? ["⚠️ 重要关注：存在 Smart Followers"]
         : []),
     `项目：${title}`,
-    `网络：${project.chainKey === "base" ? "Base" : "Robinhood Chain"}`,
+    `网络：${chainDisplayName(project.chainKey)}`,
     `计划发射：${toBeijingIsoString(project.launchedAt)}`,
     ...(project.projectTwitter ? [`项目认证 X：${project.projectTwitter}`] : []),
     ...(attention ? formatFrontrunAttention(attention) : ["Smart Followers：未知"]),

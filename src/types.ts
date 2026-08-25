@@ -1,4 +1,5 @@
-export type ChainKey = "base" | "robinhood";
+export type ChainKey = "base" | "robinhood" | "solana";
+export type EvmChainKey = Exclude<ChainKey, "solana">;
 
 export interface TelegramUser {
   chatId: string;

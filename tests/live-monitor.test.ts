@@ -4,6 +4,26 @@ import { fetchLatestLaunches } from "../src/live-monitor.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("fetchLatestLaunches", () => {
+  it("maps SOLANA launches and keeps their base58 mint address", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [{
+      id: 136950,
+      name: "Laso by Virtuals",
+      symbol: "LASO",
+      chain: "SOLANA",
+      preToken: "HyTQyxUVyB8kqFpgGh2Ej77JJrNNSUrcYc9kAA2zCTq8",
+      preTokenPair: "9JiruYXjE3S4FhYRpWBQk8z5b1WD2E4yGe9ZrXxH424g",
+      launchedAt: "2026-08-25T10:48:24.991Z",
+      creator: { socials: { VERIFIED_LINKS: { TWITTER: "https://x.com/laso" } } },
+    }] })));
+
+    await expect(fetchLatestLaunches()).resolves.toEqual([expect.objectContaining({
+      virtualId: "136950",
+      chainKey: "solana",
+      tokenAddress: "HyTQyxUVyB8kqFpgGh2Ej77JJrNNSUrcYc9kAA2zCTq8",
+      preTokenPair: "9JiruYXjE3S4FhYRpWBQk8z5b1WD2E4yGe9ZrXxH424g",
+    })]);
+  });
+
   it("falls back to project socials when creator is missing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: [
       {

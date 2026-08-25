@@ -1,7 +1,8 @@
 import { env } from "./config.js";
+import { isEvmChain, normalizeSolanaAddress } from "./chains.js";
 import { fetchLaunchByToken } from "./live-monitor.js";
 import type { SqliteStore } from "./store.js";
-import type { ChainKey } from "./types.js";
+import type { ChainKey, EvmChainKey } from "./types.js";
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const LAUNCH_TOPIC = "0xb9ee8aa6d909a3efd0bf1b0bc2bde7f998f7ad30178b0d45f9227f5382cebc8f";
@@ -14,7 +15,7 @@ const SELECTOR = {
   taxStartTime: "0x70e6e182",
 } as const;
 
-const chains: Record<ChainKey, { rpcUrl: string; virtualToken: string; launchContract: string }> = {
+const chains: Record<EvmChainKey, { rpcUrl: string; virtualToken: string; launchContract: string }> = {
   base: {
     rpcUrl: env.BASE_RPC_URL,
     virtualToken: "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b",
@@ -55,12 +56,13 @@ export class TaxQueryService {
   constructor(private readonly store?: SqliteStore) {}
 
   async query(rawTokenAddress: string): Promise<TaxQueryResult> {
-    const requestedTokenAddress = normalizeAddress(rawTokenAddress);
+    const requestedTokenAddress = normalizeAddress(rawTokenAddress) ?? normalizeSolanaAddress(rawTokenAddress);
     if (!requestedTokenAddress) throw new Error("代币 CA 格式错误，请输入 0x 开头的 40 位十六进制地址。");
 
     const project = await fetchLaunchByToken(requestedTokenAddress);
     if (!project) throw new Error("未在 Virtuals 中找到这个代币 CA。");
 
+    if (!isEvmChain(project.chainKey)) throw new Error("/tax 暂不支持 Solana 代币。");
     const tokenAddress = resolveTaxTokenAddress(requestedTokenAddress, project.tokenAddress);
     const chain = chains[project.chainKey];
     const latestHex = await rpc<string>(chain.rpcUrl, "eth_blockNumber", []);

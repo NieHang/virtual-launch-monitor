@@ -32,6 +32,11 @@ function project(overrides: Partial<LiveProject> = {}): LiveProject {
 }
 
 describe("SqliteStore", () => {
+  it("subscribes new users to Solana by default", () => {
+    const store = createStore();
+    expect(store.upsertUser({ chatId: "sol-user" }).chains).toEqual(["base", "robinhood", "solana"]);
+  });
+
   it("persists user notification state and chains", () => {
     const store = createStore();
     const created = store.upsertUser({ chatId: "123", username: "alice" });

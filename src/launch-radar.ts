@@ -1,3 +1,4 @@
+import { normalizeChain } from "./chains.js";
 import type { ChainKey } from "./types.js";
 
 interface LaunchRadarItem {
@@ -75,10 +76,4 @@ async function fetchItems(url: URL, source: string): Promise<LaunchRadarResponse
   });
   if (!response.ok) throw new Error(`${source} returned ${response.status}`);
   return response.json() as Promise<LaunchRadarResponse>;
-}
-
-function normalizeChain(value?: string): ChainKey | undefined {
-  if (value?.toUpperCase() === "BASE") return "base";
-  if (value?.toUpperCase() === "ROBINHOOD") return "robinhood";
-  return undefined;
 }

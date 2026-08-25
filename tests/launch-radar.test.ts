@@ -4,6 +4,19 @@ import { fetchUpcomingProjects } from "../src/launch-radar.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Launch Radar project socials", () => {
+  it("includes upcoming Solana projects", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [{
+      id: 136951,
+      name: "Sol Upcoming",
+      status: "INITIALIZED",
+      chain: "SOLANA",
+      launchedAt: "2026-08-26T00:00:00Z",
+    }] })));
+
+    const projects = await fetchUpcomingProjects(new Date("2026-08-25T00:00:00Z"));
+    expect(projects[0]).toMatchObject({ virtualId: "136951", chainKey: "solana" });
+  });
+
   it("keeps a verified X link returned by the Radar list", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [{
       id: 10,

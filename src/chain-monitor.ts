@@ -1,14 +1,15 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { env } from "./config.js";
+import { EVM_CHAINS } from "./chains.js";
 import { fetchLaunchById, fetchLaunchByToken } from "./live-monitor.js";
 import { shouldNotifyForAttention, shouldNotifyWeChat, type FrontrunAttentionCoordinator } from "./frontrun.js";
 import { logger } from "./logger.js";
 import type { SqliteStore } from "./store.js";
-import type { ChainKey } from "./types.js";
+import type { ChainKey, EvmChainKey } from "./types.js";
 
 const LAUNCH_TOPIC = "0xb9ee8aa6d909a3efd0bf1b0bc2bde7f998f7ad30178b0d45f9227f5382cebc8f";
 
-const chains: Record<ChainKey, { rpcUrl: string; launchContract: string }> = {
+const chains: Record<EvmChainKey, { rpcUrl: string; launchContract: string }> = {
   base: {
     rpcUrl: env.BASE_RPC_URL,
     launchContract: "0x1a540088125d00dd3990f9da45ca0859af4d3b01",
@@ -35,7 +36,7 @@ interface RpcResponse<T> {
 export class ChainLaunchMonitor {
   private stopped = false;
   private timer?: NodeJS.Timeout;
-  private readonly lastBlocks = new Map<ChainKey, number>();
+  private readonly lastBlocks = new Map<EvmChainKey, number>();
   private readonly resolvingTokens = new Set<string>();
 
   constructor(
@@ -46,7 +47,7 @@ export class ChainLaunchMonitor {
 
   async start(): Promise<void> {
     this.stopped = false;
-    await Promise.all((Object.keys(chains) as ChainKey[]).map((chainKey) => this.establishBaseline(chainKey)));
+    await Promise.all(EVM_CHAINS.map((chainKey) => this.establishBaseline(chainKey)));
     this.schedule();
   }
 
@@ -63,7 +64,7 @@ export class ChainLaunchMonitor {
 
   private async tick(): Promise<void> {
     try {
-      await Promise.all((Object.keys(chains) as ChainKey[]).map((chainKey) => this.pollChain(chainKey)));
+      await Promise.all(EVM_CHAINS.map((chainKey) => this.pollChain(chainKey)));
     } catch (error) {
       logger.warn("Chain launch polling failed", { error: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -71,7 +72,7 @@ export class ChainLaunchMonitor {
     }
   }
 
-  private async pollChain(chainKey: ChainKey): Promise<void> {
+  private async pollChain(chainKey: EvmChainKey): Promise<void> {
     const config = chains[chainKey];
     const previous = this.lastBlocks.get(chainKey);
     if (previous === undefined) {
@@ -109,7 +110,7 @@ export class ChainLaunchMonitor {
     }
   }
 
-  private async establishBaseline(chainKey: ChainKey): Promise<void> {
+  private async establishBaseline(chainKey: EvmChainKey): Promise<void> {
     try {
       const block = await rpc<string>(chains[chainKey].rpcUrl, "eth_blockNumber", []);
       const blockNumber = Number.parseInt(block, 16);

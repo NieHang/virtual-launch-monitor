@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { AlertPayload, ChainKey, FrontrunAttention, FrontrunCheck, LiveProject, OutboxItem, StoreStats, TelegramUser, WeChatOutboxItem } from "./types.js";
+import { explorerRoot } from "./chains.js";
 import { toBeijingIsoString } from "./time.js";
 
 export class SqliteStore {
@@ -314,7 +315,7 @@ export class SqliteStore {
         chat_id TEXT PRIMARY KEY,
         username TEXT,
         enabled INTEGER NOT NULL DEFAULT 0,
-        chains TEXT NOT NULL DEFAULT '["base","robinhood"]',
+        chains TEXT NOT NULL DEFAULT '["base","robinhood","solana"]',
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         updated_at INTEGER NOT NULL DEFAULT (unixepoch())
       );
@@ -420,7 +421,7 @@ function alertPayload(project: LiveProject, frontrunAttention?: FrontrunAttentio
     launchedAt: toBeijingIsoString(project.launchedAt),
     projectTwitter: project.projectTwitter,
     ...(project.projectTelegram ? { projectTelegram: project.projectTelegram } : {}),
-    explorer: project.chainKey === "base" ? "https://basescan.org" : "https://robinhoodchain.blockscout.com",
+    explorer: explorerRoot(project.chainKey),
     ...(frontrunAttention ? { frontrunAttention } : {}),
   };
 }
