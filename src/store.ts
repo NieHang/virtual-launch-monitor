@@ -256,7 +256,7 @@ export class SqliteStore {
     const row = this.db.prepare(`
       SELECT launch_block, scanned_to_block, tax_wei, transaction_count
       FROM tax_scans WHERE chain_key = ? AND token_address = ? AND matcher_version = 4
-    `).get(chainKey, tokenAddress.toLowerCase()) as TaxScanRow | undefined;
+    `).get(chainKey, taxScanTokenKey(chainKey, tokenAddress)) as TaxScanRow | undefined;
     return row ? {
       launchBlock: row.launch_block,
       scannedToBlock: row.scanned_to_block,
@@ -278,7 +278,7 @@ export class SqliteStore {
         updated_at = unixepoch()
     `).run(
       chainKey,
-      tokenAddress.toLowerCase(),
+      taxScanTokenKey(chainKey, tokenAddress),
       state.launchBlock,
       state.scannedToBlock,
       state.taxWei.toString(),
@@ -408,6 +408,10 @@ function rowToUser(row: UserRow): TelegramUser {
 function isFresh(project: LiveProject, now: Date, maxAgeMs: number): boolean {
   const ageMs = now.getTime() - project.launchedAt.getTime();
   return ageMs >= -60_000 && ageMs <= maxAgeMs;
+}
+
+function taxScanTokenKey(chainKey: ChainKey, tokenAddress: string): string {
+  return chainKey === "solana" ? tokenAddress : tokenAddress.toLowerCase();
 }
 
 function alertPayload(project: LiveProject, frontrunAttention?: FrontrunAttention): AlertPayload {

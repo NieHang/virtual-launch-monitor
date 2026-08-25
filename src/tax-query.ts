@@ -1,6 +1,7 @@
 import { env } from "./config.js";
 import { isEvmChain, normalizeSolanaAddress } from "./chains.js";
 import { fetchLaunchByToken } from "./live-monitor.js";
+import { scanSolanaTax } from "./solana-tax-query.js";
 import type { SqliteStore } from "./store.js";
 import type { ChainKey, EvmChainKey } from "./types.js";
 
@@ -48,6 +49,8 @@ export interface TaxQueryResult {
   launchBlock: number;
   scannedToBlock: number;
   taxAddress: string;
+  taxRecipient?: string;
+  taxDecimals?: number;
   taxWei: bigint;
   transactionCount: number;
 }
@@ -57,12 +60,23 @@ export class TaxQueryService {
 
   async query(rawTokenAddress: string): Promise<TaxQueryResult> {
     const requestedTokenAddress = normalizeAddress(rawTokenAddress) ?? normalizeSolanaAddress(rawTokenAddress);
-    if (!requestedTokenAddress) throw new Error("代币 CA 格式错误，请输入 0x 开头的 40 位十六进制地址。");
+    if (!requestedTokenAddress) throw new Error("代币 CA 格式错误，请输入 EVM 地址或 Solana mint 地址。");
 
     const project = await fetchLaunchByToken(requestedTokenAddress);
     if (!project) throw new Error("未在 Virtuals 中找到这个代币 CA。");
 
-    if (!isEvmChain(project.chainKey)) throw new Error("/tax 暂不支持 Solana 代币。");
+    if (!isEvmChain(project.chainKey)) {
+      const cached = this.store?.getTaxScan(project.chainKey, project.tokenAddress);
+      const scan = await scanSolanaTax(project, cached);
+      this.store?.saveTaxScan(project.chainKey, project.tokenAddress, scan);
+      return {
+        chainKey: project.chainKey,
+        tokenAddress: project.tokenAddress,
+        ...(project.tokenName ? { tokenName: project.tokenName } : {}),
+        ...(project.tokenSymbol ? { tokenSymbol: project.tokenSymbol } : {}),
+        ...scan,
+      };
+    }
     const tokenAddress = resolveTaxTokenAddress(requestedTokenAddress, project.tokenAddress);
     const chain = chains[project.chainKey];
     const latestHex = await rpc<string>(chain.rpcUrl, "eth_blockNumber", []);
@@ -161,10 +175,10 @@ export function taxLogBelongsToTokenBuy(
   return targetTokenLeavesPool && payerFundsTargetPool;
 }
 
-export function formatVirtual(wei: bigint): string {
-  const base = 10n ** 18n;
+export function formatVirtual(wei: bigint, decimals = 18): string {
+  const base = 10n ** BigInt(decimals);
   const whole = wei / base;
-  const fraction = (wei % base).toString().padStart(18, "0").replace(/0+$/, "");
+  const fraction = (wei % base).toString().padStart(decimals, "0").replace(/0+$/, "");
   return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 

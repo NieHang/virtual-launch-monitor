@@ -46,6 +46,14 @@ describe("SqliteStore", () => {
     expect(store.getUser("123")).toMatchObject({ enabled: true, chains: ["base"], username: "alice" });
   });
 
+  it("preserves case-sensitive Solana mint keys in tax scan storage", () => {
+    const store = createStore();
+    const mint = "HyTQyxUVyB8kqFpgGh2Ej77JJrNNSUrcYc9kAA2zCTq8";
+    store.saveTaxScan("solana", mint, { launchBlock: 10, scannedToBlock: 20, taxWei: 103n, transactionCount: 1 });
+    expect(store.getTaxScan("solana", mint)).toEqual({ launchBlock: 10, scannedToBlock: 20, taxWei: 103n, transactionCount: 1 });
+    expect(store.getTaxScan("solana", mint.toLowerCase())).toBeUndefined();
+  });
+
   it("never notifies launches loaded into the startup baseline", () => {
     const store = createStore();
     store.upsertUser({ chatId: "123" });

@@ -382,10 +382,11 @@ export function formatTaxResult(result: TaxQueryResult): string {
     `项目：${title}`,
     `网络：${chainDisplayName(result.chainKey)}`,
     `代币 CA：${result.tokenAddress}`,
-    `累计反狙击税：${formatVirtual(result.taxWei)} VIRTUAL`,
+    `累计反狙击税：${formatVirtual(result.taxWei, result.taxDecimals ?? 18)} VIRTUAL`,
     `税收交易数：${result.transactionCount}`,
-    `税收地址：${result.taxAddress}`,
-    `税期扫描区块：${result.launchBlock} - ${result.scannedToBlock}`,
+    `${result.chainKey === "solana" ? "税款执行地址" : "税收地址"}：${result.taxAddress}`,
+    ...(result.taxRecipient ? [`回购接收地址：${result.taxRecipient}`] : []),
+    `税期扫描${result.chainKey === "solana" ? "Slot" : "区块"}：${result.launchBlock} - ${result.scannedToBlock}`,
   ].join("\n");
 }
 

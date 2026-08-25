@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAlert, formatCompactUsd, isTelegramChatAllowed } from "../src/telegram.js";
+import { formatAlert, formatCompactUsd, formatTaxResult, isTelegramChatAllowed } from "../src/telegram.js";
 
 describe("Telegram whitelist", () => {
   it("keeps backward-compatible open access when the whitelist is empty", () => {
@@ -67,5 +67,25 @@ describe("compact USD formatting", () => {
 
   it("keeps small values readable", () => {
     expect(formatCompactUsd(526_180000000000000000n, 1)).toBe("$526.18");
+  });
+});
+
+describe("Solana tax formatting", () => {
+  it("shows executor, buyback recipient, slots, and 9-decimal VIRTUAL amounts", () => {
+    const text = formatTaxResult({
+      chainKey: "solana",
+      tokenAddress: "HyTQyxUVyB8kqFpgGh2Ej77JJrNNSUrcYc9kAA2zCTq8",
+      launchBlock: 10,
+      scannedToBlock: 20,
+      taxAddress: "AamUJY5hvSPCcpw2e6mzCuMsxrdQKVnN8iFeYKSZNFcf",
+      taxRecipient: "FcB6R6Z7ZGWYMo8rYLCgb8AL8rtrJHuHchVseMgM1uMQ",
+      taxDecimals: 9,
+      taxWei: 51_028_134_611n,
+      transactionCount: 2,
+    });
+    expect(text).toContain("累计反狙击税：51.028134611 VIRTUAL");
+    expect(text).toContain("税款执行地址：AamU");
+    expect(text).toContain("回购接收地址：FcB6");
+    expect(text).toContain("税期扫描Slot：10 - 20");
   });
 });

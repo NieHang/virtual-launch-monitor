@@ -5,6 +5,7 @@ import {
   selectPairStartTimestamp,
   taxLogBelongsToTokenBuy,
 } from "../src/tax-query.js";
+import { solanaClaimedVirtualUnits, type SolanaTransaction } from "../src/solana-tax-query.js";
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
@@ -57,6 +58,39 @@ describe("tax query helpers", () => {
   it("formats 18-decimal VIRTUAL amounts without floating point loss", () => {
     expect(formatVirtual(85n * 10n ** 18n)).toBe("85");
     expect(formatVirtual(1_234_500_000_000_000_000n)).toBe("1.2345");
+    expect(formatVirtual(51_028_134_611n, 9)).toBe("51.028134611");
+  });
+
+  it("counts only signed Solana ClaimTradingFee inflows to the buyback wallet", () => {
+    const executor = "AamUJY5hvSPCcpw2e6mzCuMsxrdQKVnN8iFeYKSZNFcf";
+    const recipient = "FcB6R6Z7ZGWYMo8rYLCgb8AL8rtrJHuHchVseMgM1uMQ";
+    const virtualMint = "3iQL8BFS2vE7mww4ehAqQHAsbmRNCrPxizWAT2Zfyr9y";
+    const transaction: SolanaTransaction = {
+      slot: 123,
+      transaction: { message: { accountKeys: [{ pubkey: executor, signer: true }] } },
+      meta: {
+        err: null,
+        logMessages: ["Program log: Instruction: ClaimTradingFee"],
+        preTokenBalances: [{
+          accountIndex: 1,
+          mint: virtualMint,
+          owner: recipient,
+          uiTokenAmount: { amount: "100", decimals: 9 },
+        }],
+        postTokenBalances: [{
+          accountIndex: 1,
+          mint: virtualMint,
+          owner: recipient,
+          uiTokenAmount: { amount: "250", decimals: 9 },
+        }],
+      },
+    };
+
+    expect(solanaClaimedVirtualUnits(transaction, executor, recipient, virtualMint)).toBe(150n);
+    expect(solanaClaimedVirtualUnits({
+      ...transaction,
+      transaction: { message: { accountKeys: [{ pubkey: executor, signer: false }] } },
+    }, executor, recipient, virtualMint)).toBe(0n);
   });
 });
 

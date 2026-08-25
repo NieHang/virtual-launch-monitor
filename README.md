@@ -55,7 +55,7 @@ http://127.0.0.1:3000/health
 - `/search <代币CA>`：查询 Virtuals 项目，返回与自动通知相同的信息格式。
 
 “查询 Upcoming”会在每次点击时重新查询每个项目的 Frontrun Top 20；`/search` 和自动发射通知会复用数据库中已经保存的单次查询结果，避免重复消耗 API Credits。
-- `/tax <代币CA>`：从代币发射区块扫描到“发射后 98 分钟”或当前最新区块（取较早者），只累计与该代币交易关联、且转入固定税收地址的 VIRTUAL；后续查询采用 SQLite 增量扫描。
+- `/tax <代币CA>`：EVM 链从代币发射区块扫描到“发射后 98 分钟”或当前最新区块（取较早者），只累计与该代币交易关联、且转入固定税收地址的 VIRTUAL。Solana 按项目 Bonding Pair 扫描同一税期内由固定执行钱包签名的 `ClaimTradingFee`，累计流入回购钱包的 VIRTUAL；两种路径都使用 SQLite 增量扫描。
 - `/efdv <代币CA>`：从最新区块直接读取 Bonding/毕业后 LP 储备、代币总供应量、Pair 的 `taxStartTime`、BondingV5 的税率类型和链上持续时间，返回当前 FDV；反狙击税仍有效时同时返回真实 eFDV，结束后直接返回 FDV。
 
 真实 eFDV 不使用官网缓存的 `fdvInVirtual`。计算口径为：
