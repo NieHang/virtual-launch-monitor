@@ -1,0 +1,67 @@
+import { env } from "./config.js";
+import { ChainLaunchMonitor } from "./chain-monitor.js";
+import { startHealthServer } from "./health.js";
+import { FrontrunAttentionCoordinator, FrontrunService } from "./frontrun.js";
+import { LiveLaunchMonitor } from "./live-monitor.js";
+import { logger } from "./logger.js";
+import { RealCostQueryService } from "./real-cost-query.js";
+import { SqliteStore } from "./store.js";
+import { TaxQueryService } from "./tax-query.js";
+import { NotificationWorker, TelegramApi, TelegramBot } from "./telegram.js";
+import { WeChatApi, WeChatNotificationWorker } from "./wechat.js";
+
+const telegramAllowedChatIds = new Set(env.TELEGRAM_ALLOWED_CHAT_IDS);
+const store = new SqliteStore(env.SQLITE_PATH, telegramAllowedChatIds);
+const telegramApi = env.TELEGRAM_BOT_TOKEN ? new TelegramApi(env.TELEGRAM_BOT_TOKEN) : undefined;
+const wechatApi = env.WECOM_WEBHOOK_URL ? new WeChatApi(env.WECOM_WEBHOOK_URL) : undefined;
+const taxQueryService = new TaxQueryService(store);
+const realCostQueryService = new RealCostQueryService();
+const frontrunService = env.FrontRunKey ? new FrontrunService(env.FrontRunKey) : undefined;
+const frontrunAttention = new FrontrunAttentionCoordinator(store, frontrunService, env.XBlockList);
+const telegramBot = telegramApi
+  ? new TelegramBot(telegramApi, store, telegramAllowedChatIds, taxQueryService, realCostQueryService, frontrunAttention, frontrunService)
+  : undefined;
+const notificationWorker = new NotificationWorker(
+  store,
+  telegramApi,
+  (projectTwitter) => frontrunAttention.isBlocked(projectTwitter),
+);
+const wechatNotificationWorker = wechatApi
+  ? new WeChatNotificationWorker(store, wechatApi, (projectTwitter) => frontrunAttention.isBlocked(projectTwitter))
+  : undefined;
+const liveMonitor = new LiveLaunchMonitor(store, frontrunAttention, Boolean(wechatApi));
+const chainMonitor = new ChainLaunchMonitor(store, frontrunAttention, Boolean(wechatApi));
+const healthServer = startHealthServer(env.PORT, store);
+
+notificationWorker.start();
+wechatNotificationWorker?.start();
+// The first latest-page fetch is a baseline only. It can never enqueue alerts.
+await liveMonitor.start();
+await chainMonitor.start();
+telegramBot?.start();
+logger.info("Virtual Launch Monitor ready", {
+  storage: "sqlite",
+  database: env.SQLITE_PATH,
+  port: env.PORT,
+  telegram: Boolean(telegramApi),
+  wechat: Boolean(wechatApi),
+  telegramWhitelistEnabled: env.TELEGRAM_ALLOWED_CHAT_IDS.length > 0,
+  telegramAllowedUsers: env.TELEGRAM_ALLOWED_CHAT_IDS.length,
+  frontrun: Boolean(frontrunService),
+  xBlockListEntries: env.XBlockList.length,
+});
+
+async function shutdown(signal: string): Promise<void> {
+  logger.info("Shutting down", { signal });
+  telegramBot?.stop();
+  notificationWorker.stop();
+  wechatNotificationWorker?.stop();
+  liveMonitor.stop();
+  chainMonitor.stop();
+  healthServer.close();
+  store.close();
+  process.exit(0);
+}
+
+process.once("SIGINT", () => void shutdown("SIGINT"));
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
